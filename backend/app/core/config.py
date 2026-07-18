@@ -1,12 +1,13 @@
+import os
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data_mock"
 
 
 class Settings(BaseModel):
-    data_dir: Path = DEFAULT_DATA_DIR
+    data_dir: Path = Field(default_factory=lambda: Path(os.environ.get("DATA_DIR", DEFAULT_DATA_DIR)))
 
     @property
     def checklist_path(self) -> Path:

@@ -1,0 +1,16 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ${DATA_DIR:-./data_mock}:/app/data_mock:ro
+    environment:
+      - DATA_DIR=/app/data_mock
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    depends_on:
+      - backend

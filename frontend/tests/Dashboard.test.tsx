@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import { Dashboard } from "../src/components/Dashboard";
 import type { DashboardResponse } from "../src/types/muestra";
@@ -23,9 +23,18 @@ const data: DashboardResponse = {
   alertas_desfase: ["Area_3_Validacion_Informes"],
 };
 
+function setup(overrides: Partial<React.ComponentProps<typeof Dashboard>> = {}) {
+  const onQueryChange = vi.fn();
+  const onExport = vi.fn();
+  render(
+    <Dashboard data={data} query="" onQueryChange={onQueryChange} onExport={onExport} {...overrides} />,
+  );
+  return { onQueryChange, onExport };
+}
+
 describe("Dashboard", () => {
   it("lists every muestra with its estado", () => {
-    render(<Dashboard data={data} />);
+    setup();
 
     expect(screen.getByText("M-001")).toBeInTheDocument();
     expect(screen.getByText("Completo")).toBeInTheDocument();
@@ -34,21 +43,39 @@ describe("Dashboard", () => {
   });
 
   it("shows missing/ghost test details", () => {
-    render(<Dashboard data={data} />);
+    setup();
 
     expect(screen.getByText(/Microbiologia/)).toBeInTheDocument();
     expect(screen.getByText(/Plaguicidas/)).toBeInTheDocument();
   });
 
   it("shows a staleness alert banner when files are out of date", () => {
-    render(<Dashboard data={data} />);
+    setup();
 
     expect(screen.getByText(/Area_3_Validacion_Informes/)).toBeInTheDocument();
   });
 
   it("shows no staleness banner when everything is fresh", () => {
-    render(<Dashboard data={{ ...data, alertas_desfase: [] }} />);
+    setup({ data: { ...data, alertas_desfase: [] } });
 
     expect(screen.queryByText(/desactualizad/i)).not.toBeInTheDocument();
+  });
+
+  it("calls onQueryChange as the user types in the search box", () => {
+    const { onQueryChange } = setup();
+
+    fireEvent.change(screen.getByPlaceholderText(/buscar por código/i), {
+      target: { value: "M-006" },
+    });
+
+    expect(onQueryChange).toHaveBeenCalledWith("M-006");
+  });
+
+  it("calls onExport when the export button is clicked", () => {
+    const { onExport } = setup();
+
+    fireEvent.click(screen.getByRole("button", { name: /exportar/i }));
+
+    expect(onExport).toHaveBeenCalled();
   });
 });
