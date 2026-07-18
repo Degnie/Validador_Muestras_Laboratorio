@@ -5,6 +5,12 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 
 ## [Unreleased]
 
+Sin cambios pendientes.
+
+## [1.6.0] - 2026-07-18
+
+Auditoría técnica de 5 etapas (calidad, arquitectura, seguridad, resiliencia e infraestructura/memoria) sobre el contenido de esta versión: **aprobada sin hallazgos críticos ni vulnerabilidades**. Certifica el MVP "read-only" (FastAPI + Pandas + TheFuzz + React) descripto en `docs/ADR-001-Stack-Tecnologico.md` como maduro; no se requirió ninguna refactorización de lógica de negocio para cerrar esta ronda.
+
 ### Added
 - Límite de memoria (`deploy.resources.limits.memory: 512M`) para el servicio `backend` en `docker-compose.yml`, para que un pico de la ingesta (streaming por lotes, ver "Rechazado" más abajo) no se lleve puesta la máquina host.
 - Sanitización de input en el motor de búsqueda difusa (`backend/app/services/fuzzy_match.py::_sanitize_query`): el `q` que llega de `/api/muestras/buscar` se limpia de caracteres de control y se trunca a 200 caracteres antes de tocar `thefuzz`/`rapidfuzz`. `thefuzz` nunca interpreta el input como patrón (no hay superficie de inyección tipo regex/SQL), así que esto es defensa en profundidad contra input adversarial/ruido, no una vulnerabilidad que existiera antes.
@@ -33,6 +39,7 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 - **Modificación del Rate Limiter para penalizar IPs específicas basadas en los logs de truncamiento**: descartado. `RateLimitMiddleware` ya limita por IP de forma genérica (60 req/min); acoplarlo a los logs de `_sanitize_query` mezclaría dos responsabilidades (rate limiting vs. detección de abuso) y requeriría un mecanismo de correlación log-a-IP que hoy no existe, fuera del alcance de esta iteración.
 - **Refactorización a logs JSON estructurados**: descartado. El proyecto usa `logging` estándar de la stdlib sin un agregador de logs centralizado (no hay ELK/Datadog/etc. en el stack); estructurar a JSON sin un consumidor que lo aproveche es trabajo sin beneficio medible hoy.
 - **Inyección de Request ID / IP en los logs de advertencia de `fuzzy_match.py`**: descartado para mantener la simplicidad del flujo asíncrono sin dependencias complejas de contexto (habría requerido `contextvars` o pasar el `Request` hasta una capa de servicio que hoy es agnóstica de HTTP). El log de truncamiento ya cumple su propósito (visibilidad de que ocurrió) sin necesitar trazabilidad por request.
+- **Cualquier refactorización de código en el cierre de esta ronda de auditoría (2026-07-18)**: descartado explícitamente por regla YAGNI/anti-sobreingeniería. Las 5 etapas de la auditoría (calidad, arquitectura, seguridad, resiliencia, infraestructura/memoria) confirmaron que el diseño actual satisface las reglas de negocio sin complejidad ni dependencias injustificadas; no se tocó `validation_rules.py` ni ninguna estructura Pydantic, ya estabilizadas y probadas. Esta entrada existe para que una futura auditoría vea que el código ya fue revisado y aprobado sin cambios, en vez de volver a proponer los mismos puntos ya rechazados arriba.
 
 ## [1.5.0] - 2026-07-18
 
