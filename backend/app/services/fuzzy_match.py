@@ -1,5 +1,17 @@
+import re
+
 import pandas as pd
 from thefuzz import process
+
+# thefuzz/rapidfuzz never interprets the query as a pattern (no regex/injection surface), but
+# `q` comes straight from the request. Strip control characters and cap length before it does
+# any comparison work, so a garbage or oversized query is cheap to reject instead of just slow.
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+MAX_QUERY_LENGTH = 200
+
+
+def _sanitize_query(query: str) -> str:
+    return _CONTROL_CHARS.sub("", query).strip()[:MAX_QUERY_LENGTH]
 
 
 def correct_ids(series: pd.Series, master_ids: list[str], threshold: int = 80) -> pd.Series:
@@ -23,7 +35,10 @@ def search_by_code(query: str, ids: list[str], limit: int = 20, threshold: int =
     "M-006" score ~80% just for length/shape, which would flood exact-code searches."""
     if not query:
         return []
-    needle = query.strip().lower()
+    query = _sanitize_query(query)
+    if not query:
+        return []
+    needle = query.lower()
     substring_matches = [candidate for candidate in ids if needle in candidate.lower()]
     if substring_matches:
         return substring_matches[:limit]

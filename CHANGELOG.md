@@ -1,5 +1,25 @@
 # Changelog
 
+Todos los cambios notables de este proyecto serán documentados en este archivo.
+El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/).
+
+## [Unreleased]
+
+### Added
+- Límite de memoria (`deploy.resources.limits.memory: 512M`) para el servicio `backend` en `docker-compose.yml`, para que un pico de la ingesta (streaming por lotes, ver "Rechazado" más abajo) no se lleve puesta la máquina host.
+- Sanitización de input en el motor de búsqueda difusa (`backend/app/services/fuzzy_match.py::_sanitize_query`): el `q` que llega de `/api/muestras/buscar` se limpia de caracteres de control y se trunca a 200 caracteres antes de tocar `thefuzz`/`rapidfuzz`. `thefuzz` nunca interpreta el input como patrón (no hay superficie de inyección tipo regex/SQL), así que esto es defensa en profundidad contra input adversarial/ruido, no una vulnerabilidad que existiera antes.
+- Tests de la sanitización nueva en `test_fuzzy_search.py`: caracteres de control, query de 10.000 caracteres, query compuesta solo por caracteres de control.
+
+### Changed
+- Ninguno en esta iteración (la lógica de negocio, `validation_rules.py` y los modelos existentes no se tocaron, según lo pedido).
+
+### Rechazado / Descartado
+- **Manejador global de excepciones sanitizado (`backend/app/main.py`/`middleware.py`), streaming/chunking en `ingestion.py`, Multi-stage builds en ambos `Dockerfile`, cabeceras de seguridad + `try_files` de SPA en `nginx.conf`, sincronización `muestra.ts` ↔ `schemas.py`**: ya estaban implementados desde 1.1.0–1.5.0 (ver esas secciones). Se releyó el código de cada uno contra esta ronda de auditoría y no requirieron cambios; ver `docs/ADR-001-Stack-Tecnologico.md` para la referencia consolidada.
+- **`queryClient.invalidateQueries()` tras mutaciones de lotes de muestras**: no aplica. La API es de solo lectura (`GET /api/muestras`, `/buscar`, `/exportar`); no existe ningún endpoint `POST`/`PUT`/`DELETE` en `api/muestras.py` que mute un lote de muestras. Introducir invalidación de caché para una mutación que no existe habría sido código muerto. Si en el futuro se agrega un endpoint de subida/edición, el punto de extensión ya está documentado en `docs/TESTING_STRATEGY.md` sección 2.
+- **`backend/Dockerfile` a distroless o Alpine**: se mantiene `python:3.12-slim`. `pandas`/`numpy` no publican wheels para musl (Alpine); migrar forzaría compilar ambos desde código fuente dentro de la imagen (build lento y fragile, mismo tipo de problema de wheels ya documentado en el ADR-001 para Python 3.14). `slim` ya es la imagen mínima que no paga ese costo, y el build sigue siendo multi-stage con usuario `appuser` sin privilegios.
+- **Colas de mensajes externas (RabbitMQ/Celery/Redis) para la ingesta**: descartado, fuera del stack fijado en el ADR-001; el chunking en memoria (`read_excel_normalized`, ya vigente desde 1.1.0) cubre el caso de uso sin agregar infraestructura nueva.
+- **Reescritura de `fuzzy_match.py`/`validation_rules.py` más allá de la sanitización de input**: la cobertura de tests existente valida que los algoritmos cumplen la necesidad de negocio; no se tocó la lógica de matching/estado.
+
 ## [1.5.0] - 2026-07-18
 
 ### Añadido (Added)

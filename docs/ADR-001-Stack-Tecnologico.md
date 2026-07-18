@@ -113,6 +113,25 @@ para no reabrirlos sin revisar antes el código y el `CHANGELOG.md`.
   `<a download>` temporario y dispara el click — no hay parsing ni
   transformación de datos ahí que justifique mover trabajo a un Web
   Worker para el volumen de filas que maneja esta app.
+- **Límite de memoria del contenedor backend**: `docker-compose.yml` fija
+  `deploy.resources.limits.memory: 512M` en el servicio `backend`, para
+  que un archivo cercano al límite de ingesta no se lleve puesta la
+  máquina host — complementa (no reemplaza) el streaming por lotes de
+  `ingestion.py`. Vigente desde la iteración "Unreleased" post-1.5.0.
+- **Sanitización de input en la búsqueda difusa**: `search_by_code`
+  (`backend/app/services/fuzzy_match.py`) limpia caracteres de control y
+  trunca a 200 caracteres el `q` de la request antes de tocar
+  `thefuzz`/`rapidfuzz`. `thefuzz` nunca interpreta el input como patrón
+  (sin superficie de inyección tipo regex/SQL); es defensa en profundidad
+  contra input adversarial u oversized, no el cierre de una vulnerabilidad
+  previa. Vigente desde la iteración "Unreleased" post-1.5.0.
+- **`backend/Dockerfile` se queda en `python:3.12-slim`, no Alpine/distroless**:
+  evaluado y descartado. `pandas`/`numpy` no publican wheels para musl
+  (base de Alpine), lo que forzaría compilarlos desde código fuente dentro
+  del build — el mismo tipo de problema de disponibilidad de wheels que ya
+  obligó a fijar versiones más nuevas para Python 3.14 (ver "Consecuencias"
+  arriba). `slim` ya es multi-stage y corre sin root (`appuser`); Alpine no
+  resuelve una superficie de ataque adicional relevante para este caso.
 
 Ninguno de estos puntos introdujo una tecnología, ORM, base de datos o cola
 de mensajes fuera de las fijadas en "Decisión". Detalle de qué se evaluó y

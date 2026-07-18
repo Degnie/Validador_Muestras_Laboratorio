@@ -67,3 +67,25 @@ def test_search_by_code_exact_code_does_not_match_unrelated_similar_codes():
     result = search_by_code("M-006", ids)
 
     assert result == ["M-006"]
+
+
+def test_search_by_code_strips_control_characters_before_matching():
+    ids = ["M-001", "M-002"]
+
+    result = search_by_code("M-001\x00\x1b", ids)
+
+    assert result == ["M-001"]
+
+
+def test_search_by_code_caps_an_oversized_query_instead_of_scanning_it_whole():
+    ids = ["M-001", "M-002"]
+
+    result = search_by_code("M" * 10_000, ids)
+
+    assert result == []
+
+
+def test_search_by_code_query_that_is_only_control_characters_returns_empty():
+    result = search_by_code("\x00\x01\x02", ["M-001"])
+
+    assert result == []

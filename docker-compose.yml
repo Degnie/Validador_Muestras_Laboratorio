@@ -7,6 +7,10 @@ services:
       - ${DATA_DIR:-./data_mock}:/app/data_mock:ro
     environment:
       - DATA_DIR=/app/data_mock
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   frontend:
     build: ./frontend
