@@ -11,6 +11,11 @@ from app.core.column_aliases import COLUMN_ALIASES
 MAX_EXCEL_SIZE_MB = 20
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
+# .xlsx is a zip archive; every real one starts with this signature. Checking it (instead of
+# trusting the .xlsx extension alone) is what actually stops a renamed/malicious file from
+# reaching the xlsx parser.
+XLSX_MAGIC_BYTES = b"PK\x03\x04"
+
 
 def _normalize_key(name: str) -> str:
     stripped = str(name).strip().lower()
@@ -34,6 +39,10 @@ def assert_safe_excel_file(path: Path, max_size_mb: float = MAX_EXCEL_SIZE_MB) -
     size_mb = path.stat().st_size / (1024 * 1024)
     if size_mb > max_size_mb:
         raise ValueError(f"Archivo demasiado grande: {size_mb:.2f} MB (máximo {max_size_mb} MB)")
+    with open(path, "rb") as f:
+        header = f.read(len(XLSX_MAGIC_BYTES))
+    if header != XLSX_MAGIC_BYTES:
+        raise ValueError("El contenido del archivo no es un .xlsx válido (magic bytes no coinciden)")
 
 
 def read_excel_normalized(path: Path, batch_size: int = 500) -> pd.DataFrame:

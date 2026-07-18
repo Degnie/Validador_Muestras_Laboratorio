@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { Dashboard } from "../src/components/Dashboard";
+import { ApiError } from "../src/services/api";
 import type { DashboardResponse } from "../src/types/muestra";
 
 const data: DashboardResponse = {
@@ -77,5 +78,18 @@ describe("Dashboard", () => {
     fireEvent.click(screen.getByRole("button", { name: /exportar/i }));
 
     expect(onExport).toHaveBeenCalled();
+  });
+
+  it("shows a friendly alert instead of the table when there's an API error", () => {
+    setup({ error: new ApiError(500, "detalle crudo del server") });
+
+    expect(screen.getByRole("alert")).toHaveTextContent(/servidor/i);
+    expect(screen.queryByText("M-001")).not.toBeInTheDocument();
+  });
+
+  it("still shows the search bar when there's an error, so the user can retry", () => {
+    setup({ error: new ApiError(422, "detalle") });
+
+    expect(screen.getByPlaceholderText(/buscar por código/i)).toBeInTheDocument();
   });
 });

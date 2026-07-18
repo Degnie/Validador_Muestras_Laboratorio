@@ -1,5 +1,6 @@
 import { List, type RowComponentProps } from "react-window";
 
+import type { ApiError } from "../services/api";
 import type { DashboardResponse, EstadoMuestra, MuestraEstado } from "../types/muestra";
 import "./Dashboard.css";
 
@@ -36,9 +37,10 @@ interface DashboardProps {
   query: string;
   onQueryChange: (query: string) => void;
   onExport: () => void;
+  error?: ApiError | null;
 }
 
-export function Dashboard({ data, query, onQueryChange, onExport }: DashboardProps) {
+export function Dashboard({ data, query, onQueryChange, onExport, error }: DashboardProps) {
   return (
     <div>
       <div className="barra-superior">
@@ -53,24 +55,32 @@ export function Dashboard({ data, query, onQueryChange, onExport }: DashboardPro
         </button>
       </div>
 
-      {data.alertas_desfase.length > 0 && (
-        <div className="alerta-desfase">
-          Archivos desactualizados: {data.alertas_desfase.join(", ")}
+      {error ? (
+        <div className="alerta-error" role="alert">
+          {error.friendlyMessage}
         </div>
-      )}
+      ) : (
+        <>
+          {data.alertas_desfase.length > 0 && (
+            <div className="alerta-desfase">
+              Archivos desactualizados: {data.alertas_desfase.join(", ")}
+            </div>
+          )}
 
-      <div className="fila fila-header">
-        <span>Muestra</span>
-        <span>Estado</span>
-        <span>Detalle</span>
-      </div>
-      <List
-        rowComponent={Fila}
-        rowCount={data.muestras.length}
-        rowHeight={ROW_HEIGHT}
-        rowProps={{ muestras: data.muestras }}
-        defaultHeight={Math.min(data.muestras.length * ROW_HEIGHT, 480) || ROW_HEIGHT}
-      />
+          <div className="fila fila-header">
+            <span>Muestra</span>
+            <span>Estado</span>
+            <span>Detalle</span>
+          </div>
+          <List
+            rowComponent={Fila}
+            rowCount={data.muestras.length}
+            rowHeight={ROW_HEIGHT}
+            rowProps={{ muestras: data.muestras }}
+            defaultHeight={Math.min(data.muestras.length * ROW_HEIGHT, 480) || ROW_HEIGHT}
+          />
+        </>
+      )}
     </div>
   );
 }

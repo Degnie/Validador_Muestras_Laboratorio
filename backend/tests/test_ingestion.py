@@ -98,6 +98,16 @@ def test_assert_safe_excel_file_accepts_valid_file(tmp_xlsx):
     assert_safe_excel_file(path)  # no debe lanzar
 
 
+def test_assert_safe_excel_file_rejects_wrong_magic_bytes(tmp_path):
+    # Extensión y tamaño correctos, pero el contenido no es un zip/xlsx real
+    # (ej. un .txt o .exe renombrado a .xlsx).
+    disfrazado = tmp_path / "disfrazado.xlsx"
+    disfrazado.write_bytes(b"no soy un zip aunque tenga extension .xlsx")
+
+    with pytest.raises(ValueError, match="contenido"):
+        assert_safe_excel_file(disfrazado)
+
+
 class _FilaChecklist(BaseModel):
     id_muestra: str
     prueba_requerida: str

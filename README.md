@@ -51,6 +51,23 @@ npm run dev   # sirve en :5173, con proxy a la API en :8000
 
 Tests: `npm test`
 
+### Con Docker
+
+```bash
+cp .env.example .env   # ajustar puertos/DATA_DIR si hace falta
+docker compose up --build
+```
+
+Backend en `:8000` (Gunicorn + Uvicorn workers, usuario sin privilegios) y frontend en
+`:5173` (Nginx sirviendo el build de Vite, también sin privilegios, con proxy interno de
+`/api` hacia el backend). Ambos `Dockerfile` son multi-etapa: la imagen final no incluye
+tests, `venv`/`node_modules` de desarrollo ni herramientas de build.
+
+> **Pendiente:** en esta máquina Docker requiere activar la virtualización
+> (VT-x/AMD-V) en la BIOS, lo que implica reiniciar. Queda pospuesto — mientras
+> tanto, backend y frontend se corren en local sin Docker (ver secciones de
+> arriba), que no dependen de él.
+
 ## Notas de compatibilidad
 
 Este entorno corre Python 3.14. `pandas`, `fastapi` y `pydantic` están
@@ -58,6 +75,8 @@ fijados en `backend/requirements.txt` a las versiones mínimas que publican
 wheel precompilado para `cp314` en Windows — versiones más viejas (p. ej.
 `pandas==2.2.3`, `pydantic==2.10.4`) intentan compilar desde código fuente y
 fallan por falta de toolchain de compilación (MSVC/Rust) en esta máquina. Se
-omitió `python-Levenshtein` (acelerador opcional de `thefuzz`, tampoco tiene
-wheel para 3.14): `thefuzz` cae a su implementación en Python puro, que
-alcanza de sobra para el volumen de datos de este MVP.
+omitió `python-Levenshtein` (acelerador clásico de `thefuzz`, sin wheel para
+3.14): no hizo falta reemplazarlo, porque `thefuzz==0.22.1` ya delega
+internamente en [`rapidfuzz`](https://github.com/rapidfuzz/RapidFuzz) (C++,
+vectorizado), que sí publica wheel para 3.14 — quedó fijado explícito en
+`requirements.txt` para dejar esa dependencia real a la vista.

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { exportDashboard, fetchDashboard } from "../src/services/api";
+import { ApiError, exportDashboard, fetchDashboard } from "../src/services/api";
 
 describe("fetchDashboard", () => {
   afterEach(() => {
@@ -28,10 +28,23 @@ describe("fetchDashboard", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/muestras/buscar?q=M-006");
   });
 
-  it("throws when the response is not ok", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500 }));
+  it("throws an ApiError carrying the HTTP status when the response is not ok", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 422 }));
 
-    await expect(fetchDashboard()).rejects.toThrow();
+    await expect(fetchDashboard()).rejects.toMatchObject({ status: 422 });
+  });
+
+  it("throws an ApiError with status 0 when the network fails outright", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+
+    await expect(fetchDashboard()).rejects.toMatchObject({ status: 0 });
+  });
+
+  it("rejects a payload that doesn't match the expected contract (backend/frontend drift)", async () => {
+    const payloadRoto = { muestras: "esto-deberia-ser-un-array" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => payloadRoto }));
+
+    await expect(fetchDashboard()).rejects.toThrow(ApiError);
   });
 });
 
@@ -51,9 +64,21 @@ describe("exportDashboard", () => {
     expect(result).toBe(blob);
   });
 
-  it("throws when the response is not ok", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500 }));
+  it("throws an ApiError carrying the HTTP status when the response is not ok", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 413 }));
 
-    await expect(exportDashboard()).rejects.toThrow();
+    await expect(exportDashboard()).rejects.toMatchObject({ status: 413 });
+  });
+});
+
+describe("ApiError.friendlyMessage", () => {
+  it.each([
+    [0, /conexión/i],
+    [413, /grande/i],
+    [422, /inválid/i],
+    [500, /servidor/i],
+    [418, /error/i], // fallback genérico para códigos no mapeados
+  ])("maps status %i to a message matching %s", (status, expected) => {
+    expect(new ApiError(status, "detalle crudo").friendlyMessage).toMatch(expected);
   });
 });

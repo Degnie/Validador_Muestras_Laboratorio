@@ -45,6 +45,11 @@ de solo lectura, sin tocar los procesos ni los Excel originales.
   (MSVC/Rust) disponible para compilarlas desde código fuente. Se resolvió
   subiendo esas dependencias a las primeras versiones que sí publican wheel
   para `cp314` (`pandas==3.0.3`, `pydantic==2.13.4`, `fastapi==0.121.2`) y
-  omitiendo `python-Levenshtein` (acelerador opcional de `thefuzz` sin
-  wheel para 3.14; `thefuzz` sigue funcionando en su modo Python puro). El
-  stack elegido (React + FastAPI + Pandas) no cambió.
+  omitiendo `python-Levenshtein` (acelerador clásico de `thefuzz` sin
+  wheel para 3.14). Corrección posterior: no hizo falta que `thefuzz`
+  cayera a Python puro — desde la 0.20, `thefuzz` delega internamente en
+  `rapidfuzz` (C++, vectorizado con SIMD), que sí tiene wheel para 3.14. La
+  búsqueda difusa y por código ya corre acelerada sin ningún cambio de
+  código; solo se fijó `rapidfuzz` explícito en `requirements.txt` para que
+  esa dependencia real deje de estar oculta detrás de `thefuzz`. El stack
+  elegido (React + FastAPI + Pandas) no cambió.

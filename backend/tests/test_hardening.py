@@ -1,0 +1,67 @@
+"""Hardening de la API: límite de payload, headers de seguridad y no fuga de stack traces."""
+
+from fastapi.testclient import TestClient
+
+from app.main import create_app
+
+
+def _client(lab_dataset):
+    return TestClient(create_app(lab_dataset), raise_server_exceptions=False)
+
+
+def test_oversized_request_body_is_rejected_with_413(lab_dataset):
+    client = _client(lab_dataset)
+
+    response = client.request("GET", "/api/muestras", content=b"0" * (2 * 1024 * 1024))
+
+    assert response.status_code == 413
+
+
+def test_normal_request_is_not_affected_by_body_size_limit(lab_dataset):
+    client = _client(lab_dataset)
+
+    response = client.get("/api/muestras")
+
+    assert response.status_code == 200
+
+
+def test_security_headers_are_present(lab_dataset):
+    client = _client(lab_dataset)
+
+    response = client.get("/api/muestras")
+
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert "strict-transport-security" in response.headers
+
+
+def test_unhandled_exception_does_not_leak_internals(lab_dataset, monkeypatch):
+    import app.api.muestras as muestras_module
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("SECRET_INTERNAL_DETAIL /c/Users/LaAma/nunca/deberia/salir.py")
+
+    monkeypatch.setattr(muestras_module, "build_status", _boom)
+    client = _client(lab_dataset)
+
+    response = client.get("/api/muestras")
+
+    assert response.status_code == 500
+    assert "SECRET_INTERNAL_DETAIL" not in response.text
+    assert "RuntimeError" not in response.text
+    assert "Traceback" not in response.text
+
+
+def test_known_http_errors_still_get_their_real_status_code(lab_dataset):
+    # Un HTTPException explícito (ej. 422 por fila inválida) no debe quedar "atrapado" por el
+    # manejador genérico de excepciones no controladas.
+    import pandas as pd
+
+    pd.DataFrame({"id_muestra": ["M-001"], "prueba_requerida": [None]}).to_excel(
+        lab_dataset.checklist_path, index=False
+    )
+    client = _client(lab_dataset)
+
+    response = client.get("/api/muestras")
+
+    assert response.status_code == 422

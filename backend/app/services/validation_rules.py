@@ -1,29 +1,85 @@
+from dataclasses import dataclass
+from typing import Protocol
+
 import pandas as pd
 
 
-def build_status(checklist: pd.DataFrame, area2: pd.DataFrame) -> pd.DataFrame:
+@dataclass(frozen=True)
+class ContextoMuestra:
+    id_muestra: str
+    requeridas: set[str]
+    analizadas: set[str]
+
+    @property
+    def faltantes(self) -> list[str]:
+        return sorted(self.requeridas - self.analizadas)
+
+    @property
+    def fantasma(self) -> list[str]:
+        return sorted(self.analizadas - self.requeridas)
+
+
+class ReglaValidacion(Protocol):
+    """Un eslabón de la cadena: decide el estado de una muestra o delega (None) a la
+    siguiente regla. Agregar una regla de laboratorio nueva es agregar una clase con este
+    método e insertarla en la lista, sin tocar las reglas existentes."""
+
+    def evaluar(self, contexto: ContextoMuestra) -> str | None: ...
+
+
+class ReglaPruebasFantasma:
+    def evaluar(self, contexto: ContextoMuestra) -> str | None:
+        return "Pruebas Fantasma" if contexto.fantasma else None
+
+
+class ReglaPruebasFaltantes:
+    def evaluar(self, contexto: ContextoMuestra) -> str | None:
+        return "Faltante" if contexto.faltantes else None
+
+
+class ReglaCompleto:
+    def evaluar(self, contexto: ContextoMuestra) -> str | None:
+        return "Completo"
+
+
+# Orden = prioridad: fantasma se marca aunque también falten pruebas, y "Completo" es el
+# fallback final que siempre resuelve (por eso debe ir último en cualquier cadena custom).
+REGLAS_POR_DEFECTO: list[ReglaValidacion] = [
+    ReglaPruebasFantasma(),
+    ReglaPruebasFaltantes(),
+    ReglaCompleto(),
+]
+
+
+def _evaluar_estado(contexto: ContextoMuestra, reglas: list[ReglaValidacion]) -> str:
+    for regla in reglas:
+        estado = regla.evaluar(contexto)
+        if estado is not None:
+            return estado
+    raise ValueError(
+        f"Ninguna regla determinó un estado para {contexto.id_muestra}: "
+        "la cadena debe terminar en una regla que siempre resuelva (ej. ReglaCompleto)."
+    )
+
+
+def build_status(
+    checklist: pd.DataFrame,
+    area2: pd.DataFrame,
+    reglas: list[ReglaValidacion] | None = None,
+) -> pd.DataFrame:
     """Cross-references required tests (checklist) against tests actually analyzed (area2)."""
+    reglas = reglas if reglas is not None else REGLAS_POR_DEFECTO
     rows = []
     for id_muestra, required in checklist.groupby("id_muestra")["prueba_requerida"]:
-        required_set = set(required)
-        analyzed_set = set(area2.loc[area2["id_muestra"] == id_muestra, "prueba"])
-
-        faltantes = sorted(required_set - analyzed_set)
-        fantasma = sorted(analyzed_set - required_set)
-
-        if fantasma:
-            estado = "Pruebas Fantasma"
-        elif faltantes:
-            estado = "Faltante"
-        else:
-            estado = "Completo"
+        analizadas = set(area2.loc[area2["id_muestra"] == id_muestra, "prueba"])
+        contexto = ContextoMuestra(id_muestra=id_muestra, requeridas=set(required), analizadas=analizadas)
 
         rows.append(
             {
                 "id_muestra": id_muestra,
-                "estado": estado,
-                "pruebas_faltantes": faltantes,
-                "pruebas_fantasma": fantasma,
+                "estado": _evaluar_estado(contexto, reglas),
+                "pruebas_faltantes": contexto.faltantes,
+                "pruebas_fantasma": contexto.fantasma,
             }
         )
 

@@ -9,12 +9,6 @@ export default defineConfig({
       "/api": "http://localhost:8000",
     },
   },
-  preview: {
-    // Solo se usa dentro de docker-compose: "backend" resuelve por DNS interno de Docker.
-    proxy: {
-      "/api": "http://backend:8000",
-    },
-  },
   test: {
     environment: "jsdom",
     globals: true,
