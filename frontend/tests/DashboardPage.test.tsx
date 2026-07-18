@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DashboardPage } from "../src/pages/DashboardPage";
@@ -79,6 +79,29 @@ describe("DashboardPage", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/grande/i);
     expect(screen.getByText("M-001")).toBeInTheDocument(); // la tabla se mantiene visible
+  });
+
+  it("keeps focus on the search input and debounces the fetch while typing (regression)", async () => {
+    vi.mocked(fetchDashboard).mockResolvedValue({ muestras: [], alertas_desfase: [] });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    renderPage();
+    const input = await screen.findByPlaceholderText<HTMLInputElement>(/buscar por código/i);
+    input.focus();
+    expect(fetchDashboard).toHaveBeenCalledTimes(1); // carga inicial, sin query
+
+    for (const char of "M-006") {
+      fireEvent.change(input, { target: { value: input.value + char } });
+      act(() => vi.advanceTimersByTime(50)); // más rápido que el debounce de 300ms
+      expect(document.activeElement).toBe(input); // el input nunca se remonta
+    }
+    expect(fetchDashboard).toHaveBeenCalledTimes(1); // ninguna tecla disparó fetch todavía
+
+    act(() => vi.advanceTimersByTime(300)); // recién ahora vence el debounce
+    await vi.waitFor(() => expect(fetchDashboard).toHaveBeenCalledTimes(2));
+    expect(fetchDashboard).toHaveBeenLastCalledWith("M-006", expect.anything());
+
+    vi.useRealTimers();
   });
 
   it("does not retry the export alert once a later export succeeds", async () => {

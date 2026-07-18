@@ -1,8 +1,29 @@
-# Estrategia de Testing
+# Estrategia de Pruebas (Testing Strategy)
 
 Este documento registra *por qué* la suite de tests está estructurada como está, no repite lo que el código ya dice. Referencia: [ADR-001-Stack-Tecnologico.md](ADR-001-Stack-Tecnologico.md).
 
-## Inyección de fallos (Failure Injection)
+## 1. Cobertura Exigida
+
+Regla para tests nuevos: si un test de ingesta o de API no fuerza al menos un caso de "esto vino roto", la cobertura de esa ruta está incompleta (ver sección 3).
+
+- **Backend**: toda ruta de ingesta de Excel (magic bytes, tamaño, Zip Bomb, XML, filas inválidas) y todo código de error HTTP expuesto por la API deben tener un test que fuerce ese caso límite explícitamente, no solo el camino feliz.
+- **Frontend**: todo estado de error que la UI traduce a un banner (`ApiError.friendlyMessage`: 0/413/422/500) debe tener un test que mockee ese código y verifique el mensaje mostrado.
+- Un reporte de bug no reproducible no se cierra solo con una lectura del código: se agrega un test de regresión que quede como evidencia verificable (ver "Foco del input de búsqueda" en la sección 4).
+
+## 2. Estrategias por Capa
+
+**Backend:**
+- Lectura de los Excel de origen en streaming por lotes (`openpyxl`, modo `read_only`), sin cargar el archivo completo en memoria.
+- Pruebas de integración sin base de datos: el sistema no tiene motor de datos (lee 4 Excel de `DATA_DIR` directamente, sin ORM), así que no se simula una capa de persistencia que no existe.
+- **Límites de payload**: `MaxBodySizeMiddleware` rechaza con 413 antes de leer el body si `Content-Length` supera 1 MB (la API es de solo lectura, no recibe archivos por HTTP). `RateLimitMiddleware` limita a 60 requests/60s por IP (429 + `Retry-After`), ventana deslizante en memoria del proceso (si el backend corre con más de un worker Gunicorn, cada worker cuenta por separado — ceiling documentado en el código, no hay estado compartido tipo Redis). El Excel de origen tiene un tope propio: `MAX_EXCEL_SIZE_MB = 20` en `ingestion.py`, chequeado por tamaño en disco antes de que `openpyxl` toque el contenido.
+
+**Frontend:**
+- Pruebas de renderizado y debounce con React Testing Library (`DashboardPage.test.tsx`), incluyendo el test de regresión de foco/debounce (sección 4).
+- **Invalidación de caché (React Query)**: el dashboard es de solo lectura, no hay mutaciones ni "invalidar tras escribir". `queryKey: ["muestras", debouncedQuery]` hace que cada búsqueda sea una entrada de caché distinta, sin invalidación manual. Reintentos selectivos (`queryClient.ts::shouldRetry`): un 4xx (422/413) no se reintenta porque reintentar no cambia una fila inválida en el Excel de origen; un fallo de red (status 0) o 5xx transitorio sí vale un reintento único. La frescura de datos se comunica vía `alertas_desfase` (`check_file_freshness`), no vía invalidación de query, porque los archivos fuente cambian fuera de la app y no hay evento del lado del cliente que dispare la actualización. Si en el futuro se agrega un endpoint de subida de archivo maestro, el punto de extensión correcto es un `onSuccess` que llame `queryClient.invalidateQueries({ queryKey: ["muestras"] })`.
+- **`ErrorBoundary` vs. errores de red**: son dos mecanismos distintos, probados por separado. `DashboardPage` maneja el error que devuelve `useQuery` con un banner específico por código HTTP (cubierto en `DashboardPage.test.tsx`). `ErrorBoundary` (`frontend/src/components/ErrorBoundary.tsx`) cubre la clase de fallo que React Query no atrapa: una excepción lanzada durante el *render* (prop con forma inesperada, bug en un formateador) — sin él, ese error tira toda la app a blanco. Se probó forzando un `throw` en el render (`ErrorBoundary.test.tsx`) en vez de reusar los tests de error de red, porque las responsabilidades no se solapan.
+- **AbortController**: `fetchDashboard`/`exportDashboard` aceptan un `AbortSignal` y lo pasan a `fetch`. `DashboardPage` no crea su propio `AbortController`: usa el `signal` que la propia `queryFn` de TanStack Query inyecta (`({ signal }) => fetchDashboard(debouncedQuery, signal)`), que React Query aborta automáticamente cuando `debouncedQuery` cambia o el componente se desmonta. Un `AbortError` se re-lanza tal cual en `api.ts` (no se envuelve en `ApiError`) para que React Query lo trate como cancelación, no como fallo a mostrar en un banner.
+
+## 3. Inyección de Fallos (Fault Injection)
 
 El sistema cruza cuatro archivos Excel que llegan de fuentes externas (áreas del laboratorio) fuera de nuestro control. La suite asume que esos archivos van a llegar rotos, y prueba explícitamente:
 
@@ -11,36 +32,16 @@ El sistema cruza cuatro archivos Excel que llegan de fuentes externas (áreas de
 - **Zip Bomb (por tamaño descomprimido y por ratio de compresión)**: `test_assert_safe_excel_file_rejects_zip_bomb_by_uncompressed_size` y `..._by_compression_ratio` construyen un `.xlsx` cuyo tamaño en disco es mínimo pero cuyo `sharedStrings.xml` se infla a >200 MB al descomprimir. El chequeo de tamaño de archivo por sí solo no detecta esto (es exactamente el vector real de un Zip Bomb: comprime muy bien, pesa poco). La defensa lee `zipfile.ZipFile(...).infolist()` — metadata del directorio central, sin descomprimir nada — antes de dejar que openpyxl abra el archivo.
 - **XXE (XML External Entity)**: no se prueba con un test dedicado porque la mitigación es a nivel de dependencia, no de lógica propia: `defusedxml` instalado hace que openpyxl (que chequea `DEFUSEDXML` en su propio `__init__`) reemplace el parser XML stdlib por uno que no resuelve entidades externas ni expande bombas de entidades, en todo el proceso. Verificar la mitigación es verificar que la dependencia esté instalada (`requirements.txt`), no escribir un test de comportamiento.
 - **Zip corrupto con magic bytes válidos**: un archivo que arranca con `PK\x03\x04` (pasa el chequeo de magic bytes) pero cuyo contenido está truncado (`test_assert_safe_excel_file_rejects_corrupt_zip_with_valid_magic_bytes`) — la extensión y los primeros bytes no garantizan que el zip sea válido.
-- **Filas inválidas**: una fila que no valida contra el schema Pydantic (`ChecklistRow`/`AnalisisRow`) aborta la ingesta completa con 422 en vez de propagar datos corruptos al dashboard (`test_hardening.py::test_known_http_errors_still_get_their_real_status_code`).
+- **Filas inválidas**: una fila que no valida contra el schema Pydantic (`ChecklistRow`/`AnalisisRow`) aborta la ingesta completa con 422 en vez de propagar datos corruptos al dashboard.
 - **Excepciones no controladas en el handler**: se fuerza un `RuntimeError` con un mensaje que nunca debería llegar al cliente, y se verifica que el 500 devuelto no contenga ni el mensaje ni el traceback (`test_hardening.py::test_unhandled_exception_does_not_leak_internals`).
 - **Fallas de red en el cliente**: `DashboardPage.test.tsx` mockea `fetchDashboard`/`exportDashboard` rechazando con cada código relevante (0 = sin conexión, 413, 422, 500) y verifica que la UI muestre un banner legible en vez de pantalla en blanco o el error crudo.
 
-Regla para tests nuevos: si un test de ingesta o de API no fuerza al menos un caso de "esto vino roto", la cobertura de esa ruta está incompleta.
+## 4. Decisiones Históricas y Deuda Técnica
 
-## Límites de payload
-
-- **Request entrante**: `MaxBodySizeMiddleware` rechaza con 413 antes de leer el body si `Content-Length` supera 1 MB — justificado porque la API es de solo lectura (no recibe archivos por HTTP, los lee del disco vía `Settings.data_dir`).
-- **Rate limiting**: `RateLimitMiddleware` limita a 60 requests/60s por IP (429 + `Retry-After`), para contener un cliente que golpea el endpoint de forma repetida (loop de polling roto, script, o abuso). Ventana deslizante en memoria del proceso; si el backend corre con más de un worker Gunicorn, cada worker cuenta por separado (ceiling documentado en el código, no hay estado compartido tipo Redis).
-- **Archivo Excel de origen**: `MAX_EXCEL_SIZE_MB = 20` en `ingestion.py`, chequeado por tamaño en disco antes de que `openpyxl` toque el contenido.
-
-## Estrategia de invalidación de caché (React Query)
-
-El dashboard es de solo lectura: no hay mutaciones ni endpoints de subida, así que no existe "invalidar tras escribir". La estrategia real es:
-
-- **`queryKey: ["muestras", debouncedQuery]`**: cada búsqueda es una entrada de caché distinta; React Query no necesita invalidación manual porque el query key ya captura la única variable de estado (el texto de búsqueda).
-- **Reintentos selectivos** (`queryClient.ts::shouldRetry`): un 4xx (422 datos inválidos, 413 payload grande) no se reintenta — reintentar no cambia una fila inválida en el Excel de origen. Un fallo de red (status 0) o 5xx transitorio sí vale un reintento único.
-- **Refresco de datos**: como los archivos fuente cambian fuera de la app (otro proceso los sobreescribe), la frescura se comunica vía `alertas_desfase` (calculado en `check_file_freshness`), no vía invalidación de query — no hay evento del lado del cliente que dispare la actualización, así que se corrige el string de la respuesta en vez de fingir una invalidación que no tiene qué invalidar.
-
-Si en el futuro se agrega un endpoint de subida de archivo maestro, el punto de extensión correcto es un `onSuccess` en la mutación que llame `queryClient.invalidateQueries({ queryKey: ["muestras"] })` — no existe ese código hoy porque no existe la mutación.
-
-## `ErrorBoundary` ante fallos de red en el cliente
-
-`ErrorBoundary` (`frontend/src/components/ErrorBoundary.tsx`) **no** es el mecanismo que maneja errores de red — ese trabajo lo hace `DashboardPage` leyendo el `error` que devuelve `useQuery` y mostrando un banner con mensaje específico por código HTTP (`ApiError.friendlyMessage`: 0/413/422/500), cubierto por los tests de `DashboardPage.test.tsx` descriptos arriba.
-
-El `ErrorBoundary` cubre la clase de fallo distinta que React Query no atrapa: una excepción lanzada durante el *render* de un componente (un prop con forma inesperada llegando más allá del guard de `api.ts`, un bug en un formateador de datos). Sin él, ese tipo de error tira toda la app a blanco; con él, se muestra un fallback genérico y el error queda logueado vía `componentDidCatch`. Se probó deliberadamente por separado (`ErrorBoundary.test.tsx`, forzando un `throw` en el render) en vez de intentar reusar los tests de error de red de `DashboardPage`, porque son dos mecanismos distintos con responsabilidades distintas.
-
-Por esto se descartó poner `throwOnError: true` global en `queryClient.ts`: habría redirigido los errores de query hacia el `ErrorBoundary` (mensaje genérico), pisando el banner específico por código HTTP que ya existe y que la UX prefiere.
-
-## AbortController y cancelación de requests obsoletos
-
-`fetchDashboard`/`exportDashboard` (`frontend/src/services/api.ts`) aceptan un `AbortSignal` opcional y se lo pasan a `fetch`. `DashboardPage` no crea su propio `AbortController`: usa el `signal` que la propia `queryFn` de TanStack Query inyecta (`({ signal }) => fetchDashboard(debouncedQuery, signal)`), que React Query aborta automáticamente cuando `debouncedQuery` cambia (la query anterior queda obsoleta) o el componente se desmonta. Un `AbortError` se re-lanza tal cual en `api.ts` (no se envuelve en `ApiError`) para que React Query lo trate como cancelación, no como fallo a mostrar en un banner.
+- **Simular caídas de base de datos**: descartado. El proyecto no tiene base de datos (lee 4 Excel de `DATA_DIR`, sin ORM ni motor de datos en `config.py`). No se agregó una capa de base de datos solo para poder simular su caída.
+- **Zod para validación de esquemas**: descartado. Se mantuvo el type guard hecho a mano (`isDashboardResponse`/`isMuestraEstado`), reforzado campo por campo (cada `MuestraEstado` validado: id string, estado dentro del enum válido, arrays de strings) — agregar Zod habría sido una dependencia estructural nueva para algo que un guard sin dependencias ya cubre por completo.
+- **`throwOnError: true` global en `queryClient.ts`**: descartado. `DashboardPage` ya maneja el error localmente con un banner específico por código HTTP; ponerlo global habría reemplazado ese mensaje por el fallback genérico del `ErrorBoundary`.
+- **Interceptores tipo Axios**: descartado. El stack fijado en el ADR-001 no usa Axios; `api.ts` ya centraliza la traducción de errores en un wrapper (`fetchJson`/`ApiError`), equivalente correcto para `fetch`.
+- **Parseo de fechas ISO en `api.ts`/`muestra.ts`**: descartado. El contrato de datos (`schemas.py`/`muestra.ts`) no tiene ningún campo de fecha — todo es `str`/`list[str]`/enum de estado.
+- **`useMuestrasMutation`, invalidación de caché "tras subida" y Optimistic UI**: descartado. Esta API es de solo lectura (`GET /api/muestras`, `/buscar`, `/exportar`); no existe endpoint de subida ni mutación en el sistema.
+- **Regresión: foco del input de búsqueda y debounce efectivo** — Se reportó como bug crítico que el input de búsqueda perdía el foco por tecla y disparaba un fetch por cada carácter. Al revisar el código (`Dashboard.tsx` + `DashboardPage.tsx` + `useDebounce.ts`) no se encontró el defecto descripto: el input vive en un componente de función estable, sin recrearse ni cambiar de `key` entre renders, y el `queryKey` de React Query solo cambia cuando `debouncedQuery` cambia (300ms después de la última tecla). En vez de cerrar el reporte solo con esa lectura del código, se agregó un test de regresión (`DashboardPage.test.tsx`, "keeps focus on the search input and debounces the fetch while typing") que escribe carácter por carácter con timers falsos, verifica que `document.activeElement` sigue siendo el input después de cada tecla, y que `fetchDashboard` se llama una sola vez recién al vencer el debounce. Si en el futuro alguien reintroduce el bug (ej. moviendo el input a un componente que se recrea por render, o pasando `debouncedQuery` en vez de `query` al `value` del input), este test debería fallar y señalarlo.
