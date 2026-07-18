@@ -52,6 +52,20 @@ def test_unhandled_exception_does_not_leak_internals(lab_dataset, monkeypatch):
     assert "Traceback" not in response.text
 
 
+def test_rate_limit_returns_429_once_threshold_exceeded(lab_dataset):
+    app = create_app(lab_dataset)
+    limiter = next(m for m in app.user_middleware if m.cls.__name__ == "RateLimitMiddleware")
+    limiter.kwargs["max_requests"] = 3
+    client = TestClient(app, raise_server_exceptions=False)
+
+    for _ in range(3):
+        assert client.get("/api/muestras").status_code == 200
+
+    response = client.get("/api/muestras")
+    assert response.status_code == 429
+    assert "retry-after" in response.headers
+
+
 def test_known_http_errors_still_get_their_real_status_code(lab_dataset):
     # Un HTTPException explícito (ej. 422 por fila inválida) no debe quedar "atrapado" por el
     # manejador genérico de excepciones no controladas.

@@ -1,3 +1,6 @@
+import time
+from collections import defaultdict, deque
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -34,3 +37,31 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         response.headers.update(SECURITY_HEADERS)
         return response
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Sliding-window limit per client IP, in-process memory (single-worker-friendly; a
+    shared store like Redis is only needed once this runs behind >1 gunicorn worker)."""
+
+    def __init__(self, app, max_requests: int = 60, window_seconds: float = 60):
+        super().__init__(app)
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self._hits: dict[str, deque[float]] = defaultdict(deque)
+
+    async def dispatch(self, request: Request, call_next):
+        client_ip = request.client.host if request.client else "unknown"
+        now = time.monotonic()
+        hits = self._hits[client_ip]
+        while hits and now - hits[0] > self.window_seconds:
+            hits.popleft()
+
+        if len(hits) >= self.max_requests:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Demasiadas solicitudes, intentá de nuevo en un momento"},
+                headers={"Retry-After": str(int(self.window_seconds))},
+            )
+
+        hits.append(now)
+        return await call_next(request)

@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.muestras import router as muestras_router
 from app.core.config import Settings
-from app.core.middleware import MaxBodySizeMiddleware, SecurityHeadersMiddleware
+from app.core.middleware import MaxBodySizeMiddleware, RateLimitMiddleware, SecurityHeadersMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +23,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(MaxBodySizeMiddleware)
+    app.add_middleware(RateLimitMiddleware)
 
     @app.exception_handler(Exception)
     async def sanitized_error_handler(request: Request, exc: Exception) -> JSONResponse:
