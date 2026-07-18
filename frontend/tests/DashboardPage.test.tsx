@@ -106,6 +106,36 @@ describe("DashboardPage", () => {
     vi.useRealTimers();
   });
 
+  it("keeps the search input mounted and focusable while a debounced query is still in flight (regression)", async () => {
+    // Bug real reportado: con un mock que resuelve en el mismo tick, esta regresión no se ve
+    // (el "Cargando..." dura menos que un microtask). Acá se deja la segunda consulta colgada
+    // a propósito para poder observar el estado intermedio, como pasa con latencia de red real.
+    let resolveSegundaConsulta: ((value: Awaited<ReturnType<typeof fetchDashboard>>) => void) | undefined;
+    vi.mocked(fetchDashboard)
+      .mockResolvedValueOnce({ muestras: [], alertas_desfase: [], errores_validacion: [] })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSegundaConsulta = resolve;
+          }),
+      );
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    renderPage();
+    const input = await screen.findByPlaceholderText<HTMLInputElement>(/buscar por código/i);
+
+    fireEvent.change(input, { target: { value: "M-006" } });
+    act(() => vi.advanceTimersByTime(300)); // vence el debounce, dispara la segunda consulta
+    await vi.waitFor(() => expect(fetchDashboard).toHaveBeenCalledTimes(2));
+
+    // La segunda consulta todavía no resolvió: el input debe seguir montado y conservar lo
+    // que el usuario escribió, no reemplazarse por "Cargando...".
+    expect(screen.getByPlaceholderText<HTMLInputElement>(/buscar por código/i)).toHaveValue("M-006");
+
+    resolveSegundaConsulta?.({ muestras: [], alertas_desfase: [], errores_validacion: [] });
+    vi.useRealTimers();
+  });
+
   it("does not retry the export alert once a later export succeeds", async () => {
     vi.mocked(fetchDashboard).mockResolvedValue({ muestras: [], alertas_desfase: [], errores_validacion: [] });
     vi.mocked(exportDashboard).mockRejectedValueOnce(new ApiError(500, "falla temporal"));

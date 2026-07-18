@@ -132,6 +132,22 @@ para no reabrirlos sin revisar antes el código y el `CHANGELOG.md`.
   obligó a fijar versiones más nuevas para Python 3.14 (ver "Consecuencias"
   arriba). `slim` ya es multi-stage y corre sin root (`appuser`); Alpine no
   resuelve una superficie de ataque adicional relevante para este caso.
+  Reiterado (rechazado por segunda vez) sin cambios en la iteración
+  "Unreleased" post-1.5.0-b.
+- **Límite de memoria parametrizable por entorno**: `docker-compose.yml`
+  usa `deploy.resources.limits.memory: ${BACKEND_MEM_LIMIT:-512M}` (con
+  `BACKEND_MEM_LIMIT=512M` documentado en `.env.example`), en vez del
+  valor fijo `512M` de la iteración anterior — mismo mecanismo que
+  `DATA_DIR`/`BACKEND_PORT`/`FRONTEND_PORT`, sin infraestructura nueva.
+- **Auditoría de seguridad vía log, no excepción, al truncar input**:
+  `_sanitize_query` (`fuzzy_match.py`) emite `logger.warning` cuando una
+  query supera los 200 caracteres, y sigue procesando la versión truncada
+  en vez de devolver un error al cliente — la query truncada sigue siendo
+  una búsqueda válida, así que no hay razón para penalizar al usuario con
+  un 4xx. Detalle de la justificación en `docs/TESTING_STRATEGY.md`
+  sección 4. El límite del lado del cliente (`maxLength={200}` en
+  `Dashboard.tsx`) es UX, no el control de seguridad — ese sigue siendo
+  exclusivamente server-side.
 
 Ninguno de estos puntos introdujo una tecnología, ORM, base de datos o cola
 de mensajes fuera de las fijadas en "Decisión". Detalle de qué se evaluó y

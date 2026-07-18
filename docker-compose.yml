@@ -10,7 +10,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: ${BACKEND_MEM_LIMIT:-512M}
 
   frontend:
     build: ./frontend

@@ -76,6 +76,12 @@ describe("Dashboard", () => {
     expect(screen.queryByText(/descartada/i)).not.toBeInTheDocument();
   });
 
+  it("caps the search input at 200 characters, matching the backend truncation limit", () => {
+    setup();
+
+    expect(screen.getByPlaceholderText(/buscar por código/i)).toHaveAttribute("maxLength", "200");
+  });
+
   it("calls onQueryChange as the user types in the search box", () => {
     const { onQueryChange } = setup();
 

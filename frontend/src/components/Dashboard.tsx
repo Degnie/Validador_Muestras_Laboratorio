@@ -12,6 +12,10 @@ const ESTADO_CLASS: Record<EstadoMuestra, string> = {
 
 const ROW_HEIGHT = 44;
 
+// Debe coincidir con MAX_QUERY_LENGTH en backend/app/services/fuzzy_match.py -- el backend ya
+// trunca por seguridad, esto es solo para no dejar que el usuario escriba de más sin avisarle.
+const MAX_QUERY_LENGTH = 200;
+
 function detalle(muestra: MuestraEstado): string {
   const partes = [];
   if (muestra.pruebas_faltantes.length > 0) partes.push(`Faltan: ${muestra.pruebas_faltantes.join(", ")}`);
@@ -49,6 +53,7 @@ export function Dashboard({ data, query, onQueryChange, onExport, error }: Dashb
           placeholder="Buscar por código de muestra..."
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
+          maxLength={MAX_QUERY_LENGTH}
         />
         <button type="button" onClick={onExport}>
           Exportar a Excel

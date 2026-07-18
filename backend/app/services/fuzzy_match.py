@@ -1,7 +1,10 @@
+import logging
 import re
 
 import pandas as pd
 from thefuzz import process
+
+logger = logging.getLogger(__name__)
 
 # thefuzz/rapidfuzz never interprets the query as a pattern (no regex/injection surface), but
 # `q` comes straight from the request. Strip control characters and cap length before it does
@@ -11,7 +14,14 @@ MAX_QUERY_LENGTH = 200
 
 
 def _sanitize_query(query: str) -> str:
-    return _CONTROL_CHARS.sub("", query).strip()[:MAX_QUERY_LENGTH]
+    cleaned = _CONTROL_CHARS.sub("", query).strip()
+    if len(cleaned) > MAX_QUERY_LENGTH:
+        logger.warning(
+            "Query de búsqueda excede %d caracteres (%d); se trunca por seguridad.",
+            MAX_QUERY_LENGTH,
+            len(cleaned),
+        )
+    return cleaned[:MAX_QUERY_LENGTH]
 
 
 def correct_ids(series: pd.Series, master_ids: list[str], threshold: int = 80) -> pd.Series:

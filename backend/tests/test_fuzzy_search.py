@@ -89,3 +89,21 @@ def test_search_by_code_query_that_is_only_control_characters_returns_empty():
     result = search_by_code("\x00\x01\x02", ["M-001"])
 
     assert result == []
+
+
+def test_search_by_code_logs_a_warning_when_truncating_an_oversized_query(caplog):
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="app.services.fuzzy_match"):
+        search_by_code("M" * 300, ["M-001"])
+
+    assert any("trunca" in record.message for record in caplog.records)
+
+
+def test_search_by_code_does_not_log_when_query_is_within_the_limit(caplog):
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="app.services.fuzzy_match"):
+        search_by_code("M-001", ["M-001"])
+
+    assert caplog.records == []

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { Dashboard } from "../components/Dashboard";
@@ -19,6 +19,11 @@ export function DashboardPage() {
     // El signal lo provee y aborta React Query (al desmontar o al quedar obsoleta la query
     // por un nuevo debouncedQuery), no un AbortController manual.
     queryFn: ({ signal }) => fetchDashboard(debouncedQuery, signal),
+    // Sin esto, cada debouncedQuery nuevo es un queryKey sin datos cacheados -> isPending
+    // vuelve a true -> este componente cae al "Cargando..." de abajo y se desmonta el <input>
+    // (con él, el foco). keepPreviousData mantiene la tabla anterior en pantalla mientras
+    // llega la respuesta nueva, así el input (y el foco) nunca se destruyen entre letras.
+    placeholderData: keepPreviousData,
   });
 
   async function handleExport() {
