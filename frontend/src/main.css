@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+/* Paleta semántica + tipografía del rediseño. Inter/Geist no se cargan por CDN a propósito
+   (violaría la CSP `style-src 'self'; connect-src 'self'` ya vigente en nginx.conf, que no
+   se toca en esta iteración); "Inter" queda como preferencia en el stack, con fallback a la
+   fuente sans-serif nativa del sistema operativo si no está instalada localmente. */
+@theme {
+  --font-sans:
+    Inter, "Geist Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+
+  --color-primary: #0056b3;
+  --color-primary-hover: #00458f;
+  --color-success: #28a745;
+  --color-success-bg: #e8f6ea;
+  --color-danger: #dc3545;
+  --color-danger-bg: #fbe7e9;
+  --color-warning: #ffc107;
+  --color-warning-bg: #fff8e1;
+}
+
+body {
+  font-family: var(--font-sans);
+}

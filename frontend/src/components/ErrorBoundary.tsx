@@ -25,7 +25,7 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.error) {
       return (
-        <div role="alert" className="alerta-error">
+        <div role="alert" className="m-4 rounded-lg border border-danger bg-danger-bg px-4 py-3 text-sm text-danger">
           Ocurrió un error inesperado en la interfaz. Recargá la página e intentá de nuevo.
         </div>
       );

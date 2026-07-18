@@ -1,7 +1,8 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { Dashboard } from "../components/Dashboard";
+import { useToast } from "../components/Toast";
 import { useDebounce } from "../hooks/useDebounce";
 import { ApiError, exportDashboard, fetchDashboard } from "../services/api";
 import type { DashboardResponse } from "../types/muestra";
@@ -11,8 +12,9 @@ const DASHBOARD_VACIO: DashboardResponse = { muestras: [], alertas_desfase: [], 
 
 export function DashboardPage() {
   const [query, setQuery] = useState("");
-  const [exportError, setExportError] = useState<ApiError | null>(null);
   const debouncedQuery = useDebounce(query, 300);
+  const { showToast, dismissToast } = useToast();
+  const exportToastId = useRef<number | null>(null);
 
   const { data, error, isPending } = useQuery({
     queryKey: ["muestras", debouncedQuery],
@@ -20,34 +22,37 @@ export function DashboardPage() {
     // por un nuevo debouncedQuery), no un AbortController manual.
     queryFn: ({ signal }) => fetchDashboard(debouncedQuery, signal),
     // Sin esto, cada debouncedQuery nuevo es un queryKey sin datos cacheados -> isPending
-    // vuelve a true -> este componente cae al "Cargando..." de abajo y se desmonta el <input>
-    // (con él, el foco). keepPreviousData mantiene la tabla anterior en pantalla mientras
-    // llega la respuesta nueva, así el input (y el foco) nunca se destruyen entre letras.
+    // vuelve a true -> Dashboard mostraría el skeleton en cada letra en vez de solo en la
+    // carga inicial. keepPreviousData mantiene la tabla anterior mientras llega la respuesta
+    // nueva, así el input (y el foco) nunca se destruyen entre letras.
     placeholderData: keepPreviousData,
   });
 
   async function handleExport() {
-    setExportError(null);
+    // Descarta el toast del intento anterior antes de mostrar el resultado del nuevo, para
+    // que un reintento exitoso no deje un toast de error viejo colgado en pantalla.
+    if (exportToastId.current !== null) {
+      dismissToast(exportToastId.current);
+      exportToastId.current = null;
+    }
     try {
       const blob = await exportDashboard();
       triggerDownload(blob, "validacion_muestras.xlsx");
+      exportToastId.current = showToast("Exportación completada correctamente.", "success");
     } catch (err) {
-      setExportError(err instanceof ApiError ? err : new ApiError(0, "Error al exportar"));
+      const apiError = err instanceof ApiError ? err : new ApiError(0, "Error al exportar");
+      exportToastId.current = showToast(apiError.friendlyMessage, "error");
     }
   }
 
-  if (isPending) return <p>Cargando...</p>;
-
   return (
-    <>
-      <Dashboard
-        data={data ?? DASHBOARD_VACIO}
-        query={query}
-        onQueryChange={setQuery}
-        onExport={handleExport}
-        error={error instanceof ApiError ? error : null}
-      />
-      {exportError && <p role="alert">{exportError.friendlyMessage}</p>}
-    </>
+    <Dashboard
+      data={data ?? DASHBOARD_VACIO}
+      query={query}
+      onQueryChange={setQuery}
+      onExport={handleExport}
+      error={error instanceof ApiError ? error : null}
+      isLoading={isPending}
+    />
   );
 }

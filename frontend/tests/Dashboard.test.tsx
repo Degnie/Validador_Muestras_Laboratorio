@@ -112,4 +112,18 @@ describe("Dashboard", () => {
 
     expect(screen.getByPlaceholderText(/buscar por código/i)).toBeInTheDocument();
   });
+
+  it("shows a loading skeleton instead of the table when isLoading is true", () => {
+    setup({ isLoading: true });
+
+    expect(screen.queryByText("M-001")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /resultados/i })).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("shows the real table once isLoading is false, without a stale aria-busy flag", () => {
+    setup({ isLoading: false });
+
+    expect(screen.getByText("M-001")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /resultados/i })).not.toHaveAttribute("aria-busy");
+  });
 });

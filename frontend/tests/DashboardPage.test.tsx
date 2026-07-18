@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ToastProvider } from "../src/components/Toast";
 import { DashboardPage } from "../src/pages/DashboardPage";
 import { ApiError } from "../src/services/api";
 
@@ -22,7 +23,9 @@ function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <DashboardPage />
+      <ToastProvider>
+        <DashboardPage />
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }
@@ -108,8 +111,9 @@ describe("DashboardPage", () => {
 
   it("keeps the search input mounted and focusable while a debounced query is still in flight (regression)", async () => {
     // Bug real reportado: con un mock que resuelve en el mismo tick, esta regresión no se ve
-    // (el "Cargando..." dura menos que un microtask). Acá se deja la segunda consulta colgada
-    // a propósito para poder observar el estado intermedio, como pasa con latencia de red real.
+    // (el estado de carga dura menos que un microtask). Acá se deja la segunda consulta
+    // colgada a propósito para poder observar el estado intermedio, como pasa con latencia de
+    // red real.
     let resolveSegundaConsulta: ((value: Awaited<ReturnType<typeof fetchDashboard>>) => void) | undefined;
     vi.mocked(fetchDashboard)
       .mockResolvedValueOnce({ muestras: [], alertas_desfase: [], errores_validacion: [] })
@@ -129,11 +133,23 @@ describe("DashboardPage", () => {
     await vi.waitFor(() => expect(fetchDashboard).toHaveBeenCalledTimes(2));
 
     // La segunda consulta todavía no resolvió: el input debe seguir montado y conservar lo
-    // que el usuario escribió, no reemplazarse por "Cargando...".
+    // que el usuario escribió, no reemplazarse por el skeleton de carga.
     expect(screen.getByPlaceholderText<HTMLInputElement>(/buscar por código/i)).toHaveValue("M-006");
 
     resolveSegundaConsulta?.({ muestras: [], alertas_desfase: [], errores_validacion: [] });
     vi.useRealTimers();
+  });
+
+  it("shows a success toast (not an alert) after a successful export", async () => {
+    vi.mocked(fetchDashboard).mockResolvedValue({ muestras: [], alertas_desfase: [], errores_validacion: [] });
+    vi.mocked(exportDashboard).mockResolvedValue(new Blob());
+
+    renderPage();
+    await waitFor(() => screen.getByRole("button", { name: /exportar/i }));
+    fireEvent.click(screen.getByRole("button", { name: /exportar/i }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/completada/i);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("does not retry the export alert once a later export succeeds", async () => {

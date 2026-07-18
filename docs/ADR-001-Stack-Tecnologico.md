@@ -155,6 +155,25 @@ para no reabrirlos sin revisar antes el código y el `CHANGELOG.md`.
   `--max-requests 1000` recicla el worker periódicamente para no acumular
   fugas de memoria en un proceso de vida larga. Detalle y justificación
   extendida en `docs/TESTING_STRATEGY.md` secciones 2 y 4.
+- **Tailwind CSS v4 como capa de estilos del frontend**: integrado vía `@tailwindcss/vite`
+  (plugin de Vite, sin `tailwind.config.js`/PostCSS separado — configuración de tema
+  CSS-first en `frontend/src/main.css` con `@theme`). Reemplaza el CSS plano de
+  `Dashboard.css` (eliminado). No es un cambio de los frameworks fijados arriba (sigue
+  siendo React + Vite); es la elección de la capa de estilos dentro de ese stack. La
+  tipografía usa `Inter`/`Geist Sans` como preferencia con fallback a fuentes nativas del
+  sistema, sin CDN externo, para no violar la CSP `style-src 'self'; connect-src 'self'`
+  de `frontend/nginx.conf` (vigente desde 1.2.0).
+- **`React.lazy`/`Suspense` sobre el único punto de entrada (`DashboardPage`), sin router**:
+  la app no tiene múltiples rutas — un router solo para justificar el code-splitting habría
+  sido la definición de sobreingeniería. Se aplicó `React.lazy` igual, separando el bundle
+  de `DashboardPage` (React Query, react-window, lógica de cliente) del shell de `App.tsx`.
+  `vite.config.ts` complementa esto con `manualChunks` (vendor React/Query/react-window
+  separados) y `rollup-plugin-visualizer` (`dist/stats.html` en cada build) para auditar el
+  tamaño de los chunks. Detalle y números reales de un build en `CHANGELOG.md` (sección
+  "Unreleased" del rediseño visual) y `docs/TESTING_STRATEGY.md`.
+- **Sistema de Toast propio, sin librería (`Toast.tsx`)**: Context + `useState` de React,
+  sin dependencia nueva — la necesidad (1-2 notificaciones de éxito/error con auto-dismiss)
+  no justifica una librería como `sonner`/`react-hot-toast`.
 - **Auditoría de seguridad vía log, no excepción, al truncar input**:
   `_sanitize_query` (`fuzzy_match.py`) emite `logger.warning` cuando una
   query supera los 200 caracteres, y sigue procesando la versión truncada
