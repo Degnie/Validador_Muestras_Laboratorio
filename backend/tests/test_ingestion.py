@@ -1,4 +1,5 @@
 import time
+import zipfile
 
 import pandas as pd
 import pytest
@@ -106,6 +107,37 @@ def test_assert_safe_excel_file_rejects_wrong_magic_bytes(tmp_path):
 
     with pytest.raises(ValueError, match="contenido"):
         assert_safe_excel_file(disfrazado)
+
+
+def test_assert_safe_excel_file_rejects_zip_bomb_by_uncompressed_size(tmp_path):
+    # Un solo part que comprime a ~1 KB pero se infla a >200 MB: pasa el chequeo de tamaño
+    # del archivo en disco, pero no el de tamaño descomprimido total del zip.
+    bomba = tmp_path / "bomba.xlsx"
+    with zipfile.ZipFile(bomba, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("xl/sharedStrings.xml", "A" * (250 * 1024 * 1024))
+
+    with pytest.raises(ValueError, match="Zip Bomb"):
+        assert_safe_excel_file(bomba)
+
+
+def test_assert_safe_excel_file_rejects_zip_bomb_by_compression_ratio(tmp_path):
+    # Se mantiene bajo el techo de tamaño descomprimido absoluto, pero el ratio
+    # comprimido/descomprimido es el de una bomba (texto repetitivo, no un xlsx real).
+    bomba = tmp_path / "bomba_ratio.xlsx"
+    with zipfile.ZipFile(bomba, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("xl/sharedStrings.xml", "A" * (50 * 1024 * 1024))
+
+    with pytest.raises(ValueError, match="Zip Bomb"):
+        assert_safe_excel_file(bomba, max_size_mb=1000)
+
+
+def test_assert_safe_excel_file_rejects_corrupt_zip_with_valid_magic_bytes(tmp_path):
+    # Magic bytes de zip correctos, pero el resto del archivo está truncado/corrupto.
+    corrupto = tmp_path / "corrupto.xlsx"
+    corrupto.write_bytes(b"PK\x03\x04" + b"\x00" * 100)
+
+    with pytest.raises(ValueError):
+        assert_safe_excel_file(corrupto)
 
 
 class _FilaChecklist(BaseModel):

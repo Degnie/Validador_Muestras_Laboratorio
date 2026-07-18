@@ -1,4 +1,5 @@
 import unicodedata
+import zipfile
 from pathlib import Path
 from typing import TypeVar
 
@@ -9,6 +10,13 @@ from pydantic import BaseModel, ValidationError
 from app.core.column_aliases import COLUMN_ALIASES
 
 MAX_EXCEL_SIZE_MB = 20
+# Un .xlsx es un zip; openpyxl en read_only sí streamea las filas de la hoja, pero igual
+# carga sharedStrings.xml completo en memoria para poder resolver los IDs de string de cada
+# celda. Ahí es donde pega un Zip Bomb real: un part que pesa KB comprimido pero se
+# descomprime a GB. Se detecta leyendo los tamaños del directorio central del zip (sin
+# descomprimir nada) antes de dejar que openpyxl abra el archivo.
+MAX_UNCOMPRESSED_MB = 200
+MAX_COMPRESSION_RATIO = 100
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
 # .xlsx is a zip archive; every real one starts with this signature. Checking it (instead of
@@ -43,6 +51,24 @@ def assert_safe_excel_file(path: Path, max_size_mb: float = MAX_EXCEL_SIZE_MB) -
         header = f.read(len(XLSX_MAGIC_BYTES))
     if header != XLSX_MAGIC_BYTES:
         raise ValueError("El contenido del archivo no es un .xlsx válido (magic bytes no coinciden)")
+
+    try:
+        with zipfile.ZipFile(path) as archivo_zip:
+            total_uncompressed = sum(info.file_size for info in archivo_zip.infolist())
+            total_compressed = sum(info.compress_size for info in archivo_zip.infolist()) or 1
+    except zipfile.BadZipFile as exc:
+        raise ValueError(f"El archivo no es un zip/.xlsx válido: {exc}") from exc
+
+    if total_uncompressed > MAX_UNCOMPRESSED_MB * 1024 * 1024:
+        raise ValueError(
+            f"Contenido descomprimido demasiado grande: {total_uncompressed / (1024 * 1024):.2f} MB "
+            f"(máximo {MAX_UNCOMPRESSED_MB} MB) -- posible Zip Bomb"
+        )
+    if total_uncompressed / total_compressed > MAX_COMPRESSION_RATIO:
+        raise ValueError(
+            f"Ratio de compresión sospechoso ({total_uncompressed / total_compressed:.0f}x, "
+            f"máximo {MAX_COMPRESSION_RATIO}x) -- posible Zip Bomb"
+        )
 
 
 def read_excel_normalized(path: Path, batch_size: int = 500) -> pd.DataFrame:

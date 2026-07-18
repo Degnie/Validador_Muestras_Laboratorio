@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.3.0] - 2026-07-18
+
+Tercera pasada de la misma auditoría de producción. Alcance explícitamente acotado por el usuario: sin cambios de Docker/Nginx en esta iteración.
+
+- **Mitigación de XXE**: se agregó `defusedxml` a `backend/requirements.txt`. openpyxl detecta esta dependencia en su propio `__init__` (`openpyxl.DEFUSEDXML`) y, si está instalada, reemplaza automáticamente `xml.etree.ElementTree.fromstring`/`iterparse` por los de `defusedxml` en todo el proceso — cero cambios de código en `ingestion.py`, es el mecanismo que la propia librería expone para esto.
+- **Mitigación real de Zip Bomb**: `assert_safe_excel_file` (`backend/app/services/ingestion.py`) ahora inspecciona el directorio central del zip (`zipfile.ZipFile(...).infolist()`, sin descomprimir nada) y rechaza archivos cuyo tamaño descomprimido total supere 200 MB o cuyo ratio de compresión supere 100x. El chequeo de tamaño en disco que ya existía no alcanzaba: un `.xlsx` con un `sharedStrings.xml` que comprime a un par de KB y se infla a gigas pasaba ese chequeo sin problema (openpyxl carga ese part completo en memoria incluso en modo `read_only`, para poder resolver los IDs de string de cada celda).
+- **Tests de inyección de fallos** (`backend/tests/test_ingestion.py`): zip bomb por tamaño absoluto, zip bomb por ratio de compresión, y zip corrupto con magic bytes válidos pero contenido truncado.
+- **Runtime schema guard más estricto** en `frontend/src/services/api.ts`: `isDashboardResponse` ahora valida cada `MuestraEstado` campo por campo (id string, estado dentro del enum válido, arrays de strings), no solo que `muestras`/`alertas_desfase` sean arrays. Se evaluó Zod explícitamente y se descartó (ver rechazadas).
+- **AbortController real, vía el mecanismo nativo de React Query**: `fetchDashboard`/`exportDashboard` ahora aceptan un `AbortSignal` y se lo pasan a `fetch`; `DashboardPage` usa el `signal` que la propia `queryFn` de TanStack Query provee y aborta automáticamente cuando `debouncedQuery` cambia o el componente se desmonta. Un `AbortError` ya no se envuelve en `ApiError` (se re-lanza tal cual, para que React Query lo trate como cancelación y no como fallo).
+
+**Recomendaciones rechazadas/pausadas:**
+
+- Las optimizaciones de Docker y Nginx se han suspendido y excluido de esta iteración debido a un error interno reportado por el usuario.
+- **Zod** para validación de esquemas: se mantuvo el guard hecho a mano (`isDashboardResponse`/`isMuestraEstado`), ahora reforzado campo por campo. Agregar Zod habría sido una dependencia estructural nueva para resolver algo que un type guard de ~15 líneas sin dependencias ya cubre por completo — no hay justificación que le gane al ADR-001.
+- **`throwOnError: true` global** en `queryClient.ts`: se pidió para que las caídas de red activen el `ErrorBoundary` de inmediato, pero `DashboardPage` ya maneja el error de la query localmente con un banner específico por código HTTP (0/413/422/500), cubierto por 5 tests existentes. Poner `throwOnError` global habría reemplazado ese mensaje específico por el fallback genérico del `ErrorBoundary` y roto esos tests — el `ErrorBoundary` se dejó como red de contención para errores de *render* que escapan a React Query (su propósito original), no como reemplazo del manejo de errores de query que ya funciona mejor.
+- **Copias profundas en `validation_rules.py`**: se revisó el archivo completo; ya opera sobre `set`/`groupby` por referencia, sin ningún `.copy()`/deep copy. No había nada que optimizar.
+- **Streaming de exportación**: `exportar_muestras` (`backend/app/api/muestras.py`) ya devuelve `StreamingResponse` desde la iteración anterior. No se tocó.
+
 ## [1.2.0] - 2026-07-18
 
 Segunda pasada de la misma auditoría de producción de la iteración anterior. La mayoría de los puntos pedidos (mitigación de Zip Bomb, patrón Strategy sin clonar memoria, matching vectorizado vía `rapidfuzz`, contenedores multi-stage non-root, manejador global de excepciones sin fuga de stack traces) ya estaban resueltos en `1.1.0` y se dejaron sin tocar. Se agregó lo que faltaba de verdad:

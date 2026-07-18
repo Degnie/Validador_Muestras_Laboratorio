@@ -15,7 +15,7 @@ describe("fetchDashboard", () => {
     const result = await fetchDashboard();
 
     expect(result).toEqual(payload);
-    expect(fetchMock).toHaveBeenCalledWith("/api/muestras");
+    expect(fetchMock).toHaveBeenCalledWith("/api/muestras", { signal: undefined });
   });
 
   it("hits the search endpoint with the query when one is given", async () => {
@@ -25,7 +25,24 @@ describe("fetchDashboard", () => {
 
     await fetchDashboard("M-006");
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/muestras/buscar?q=M-006");
+    expect(fetchMock).toHaveBeenCalledWith("/api/muestras/buscar?q=M-006", { signal: undefined });
+  });
+
+  it("forwards the AbortSignal to fetch so React Query can cancel obsolete requests", async () => {
+    const payload = { muestras: [], alertas_desfase: [] };
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => payload });
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+
+    await fetchDashboard(undefined, controller.signal);
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/muestras", { signal: controller.signal });
+  });
+
+  it("re-throws AbortError as-is instead of wrapping it in an ApiError", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new DOMException("aborted", "AbortError")));
+
+    await expect(fetchDashboard()).rejects.toMatchObject({ name: "AbortError" });
   });
 
   it("throws an ApiError carrying the HTTP status when the response is not ok", async () => {
@@ -60,7 +77,7 @@ describe("exportDashboard", () => {
 
     const result = await exportDashboard();
 
-    expect(fetchMock).toHaveBeenCalledWith("/api/muestras/exportar");
+    expect(fetchMock).toHaveBeenCalledWith("/api/muestras/exportar", { signal: undefined });
     expect(result).toBe(blob);
   });
 

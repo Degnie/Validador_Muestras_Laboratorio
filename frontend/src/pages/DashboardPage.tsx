@@ -16,7 +16,9 @@ export function DashboardPage() {
 
   const { data, error, isPending } = useQuery({
     queryKey: ["muestras", debouncedQuery],
-    queryFn: () => fetchDashboard(debouncedQuery),
+    // El signal lo provee y aborta React Query (al desmontar o al quedar obsoleta la query
+    // por un nuevo debouncedQuery), no un AbortController manual.
+    queryFn: ({ signal }) => fetchDashboard(debouncedQuery, signal),
   });
 
   async function handleExport() {
