@@ -22,6 +22,7 @@ const data: DashboardResponse = {
     },
   ],
   alertas_desfase: ["Area_3_Validacion_Informes"],
+  errores_validacion: [],
 };
 
 function setup(overrides: Partial<React.ComponentProps<typeof Dashboard>> = {}) {
@@ -60,6 +61,19 @@ describe("Dashboard", () => {
     setup({ data: { ...data, alertas_desfase: [] } });
 
     expect(screen.queryByText(/desactualizad/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a partial-success banner listing rows discarded by the backend", () => {
+    setup({ data: { ...data, errores_validacion: ["Fila 3: prueba_requerida - field required"] } });
+
+    expect(screen.getByRole("alert")).toHaveTextContent(/descartada/i);
+    expect(screen.getByRole("alert")).toHaveTextContent(/Fila 3/);
+  });
+
+  it("shows no validation-error banner when nothing was discarded", () => {
+    setup();
+
+    expect(screen.queryByText(/descartada/i)).not.toBeInTheDocument();
   });
 
   it("calls onQueryChange as the user types in the search box", () => {

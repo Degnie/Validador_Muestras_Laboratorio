@@ -67,15 +67,30 @@ def test_rate_limit_returns_429_once_threshold_exceeded(lab_dataset):
 
 
 def test_known_http_errors_still_get_their_real_status_code(lab_dataset):
-    # Un HTTPException explícito (ej. 422 por fila inválida) no debe quedar "atrapado" por el
-    # manejador genérico de excepciones no controladas.
-    import pandas as pd
+    # Un HTTPException explícito (ej. 422 por archivo corrupto) no debe quedar "atrapado" por
+    # el manejador genérico de excepciones no controladas. Una fila inválida ya no sirve para
+    # este caso porque ahora es partial-success (200), no abortiva -- se usa un archivo
+    # ilegible, que sigue siendo un error de archivo completo.
+    lab_dataset.checklist_path.write_bytes(b"no soy un xlsx real")
 
-    pd.DataFrame({"id_muestra": ["M-001"], "prueba_requerida": [None]}).to_excel(
-        lab_dataset.checklist_path, index=False
-    )
     client = _client(lab_dataset)
-
     response = client.get("/api/muestras")
 
     assert response.status_code == 422
+
+
+def test_malformed_query_param_does_not_crash_the_search_endpoint(lab_dataset):
+    client = _client(lab_dataset)
+
+    response = client.get("/api/muestras/buscar", params={"q": "'; DROP TABLE--<script>💥"})
+
+    assert response.status_code == 200
+
+
+def test_excessively_long_query_param_does_not_crash_the_search_endpoint(lab_dataset):
+    client = _client(lab_dataset)
+
+    response = client.get("/api/muestras/buscar", params={"q": "M" * 50_000})
+
+    assert response.status_code == 200
+    assert response.json()["muestras"] == []

@@ -8,7 +8,7 @@ describe("fetchDashboard", () => {
   });
 
   it("returns the parsed dashboard payload on success", async () => {
-    const payload = { muestras: [], alertas_desfase: [] };
+    const payload = { muestras: [], alertas_desfase: [], errores_validacion: [] };
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => payload });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -19,7 +19,7 @@ describe("fetchDashboard", () => {
   });
 
   it("hits the search endpoint with the query when one is given", async () => {
-    const payload = { muestras: [], alertas_desfase: [] };
+    const payload = { muestras: [], alertas_desfase: [], errores_validacion: [] };
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => payload });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -29,7 +29,7 @@ describe("fetchDashboard", () => {
   });
 
   it("forwards the AbortSignal to fetch so React Query can cancel obsolete requests", async () => {
-    const payload = { muestras: [], alertas_desfase: [] };
+    const payload = { muestras: [], alertas_desfase: [], errores_validacion: [] };
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => payload });
     vi.stubGlobal("fetch", fetchMock);
     const controller = new AbortController();

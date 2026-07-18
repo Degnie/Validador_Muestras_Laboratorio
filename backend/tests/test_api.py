@@ -34,17 +34,23 @@ def test_get_muestras_returns_status_with_fuzzy_matched_id(tmp_path):
     assert muestras["M-001"]["pruebas_faltantes"] == ["Metales_Pesados"]
 
 
-def test_get_muestras_rejects_checklist_with_missing_required_column(tmp_path):
+def test_get_muestras_reports_partial_success_when_a_checklist_row_is_invalid(tmp_path):
+    # Una fila rota en el checklist ya no aborta el lote entero (422): se descarta esa fila,
+    # se sigue procesando el resto, y el detalle queda en errores_validacion.
     _write_dataset(tmp_path)
-    pd.DataFrame({"id_muestra": ["M-001"], "prueba_requerida": [None]}).to_excel(
-        tmp_path / "Checklist_Maestro.xlsx", index=False
-    )
+    pd.DataFrame(
+        {"id_muestra": ["M-001", "M-002"], "prueba_requerida": ["pH", None]}
+    ).to_excel(tmp_path / "Checklist_Maestro.xlsx", index=False)
     app = create_app(Settings(data_dir=tmp_path))
     client = TestClient(app)
 
     response = client.get("/api/muestras")
 
-    assert response.status_code == 422
+    assert response.status_code == 200
+    body = response.json()
+    assert "M-002" not in {m["id_muestra"] for m in body["muestras"]}
+    assert len(body["errores_validacion"]) == 1
+    assert "Fila 1" in body["errores_validacion"][0]
 
 
 def test_buscar_returns_only_matching_codes(tmp_path):

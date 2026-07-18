@@ -47,7 +47,9 @@ function isDashboardResponse(data: unknown): data is DashboardResponse {
     Array.isArray(d.muestras) &&
     d.muestras.every(isMuestraEstado) &&
     Array.isArray(d.alertas_desfase) &&
-    d.alertas_desfase.every((a) => typeof a === "string")
+    d.alertas_desfase.every((a) => typeof a === "string") &&
+    Array.isArray(d.errores_validacion) &&
+    d.errores_validacion.every((e) => typeof e === "string")
   );
 }
 

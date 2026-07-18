@@ -100,16 +100,21 @@ def read_excel_normalized(path: Path, batch_size: int = 500) -> pd.DataFrame:
     return df
 
 
-def validate_rows(df: pd.DataFrame, schema: type[ModelT]) -> pd.DataFrame:
-    """Runs every row through a Pydantic schema (type coercion + required fields), rejecting
-    the whole file on the first bad row rather than silently ingesting garbage."""
+def validate_rows(df: pd.DataFrame, schema: type[ModelT]) -> tuple[pd.DataFrame, list[str]]:
+    """Runs every row through a Pydantic schema (type coercion + required fields). A bad row
+    is skipped and reported, not fatal for the rest of the batch (partial success) -- a typo
+    in one row of a 500-row Excel shouldn't block every other valid row."""
     validated = []
+    errores = []
     for i, row in enumerate(df.to_dict(orient="records")):
         try:
             validated.append(schema(**row).model_dump())
         except ValidationError as exc:
-            raise ValueError(f"Fila {i} inválida: {exc}") from exc
-    return pd.DataFrame(validated, columns=list(schema.model_fields.keys()))
+            primer_error = exc.errors()[0]
+            campo = ".".join(str(p) for p in primer_error["loc"])
+            errores.append(f"Fila {i}: {campo} - {primer_error['msg']}")
+    result = pd.DataFrame(validated, columns=list(schema.model_fields.keys()))
+    return result, errores
 
 
 def check_file_freshness(paths: dict[str, Path], max_lag_days: float = 1) -> list[str]:

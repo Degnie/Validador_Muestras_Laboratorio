@@ -38,6 +38,7 @@ describe("DashboardPage", () => {
         { id_muestra: "M-001", estado: "Completo", pruebas_faltantes: [], pruebas_fantasma: [] },
       ],
       alertas_desfase: [],
+      errores_validacion: [],
     });
 
     renderPage();
@@ -69,6 +70,7 @@ describe("DashboardPage", () => {
         { id_muestra: "M-001", estado: "Completo", pruebas_faltantes: [], pruebas_fantasma: [] },
       ],
       alertas_desfase: [],
+      errores_validacion: [],
     });
     vi.mocked(exportDashboard).mockRejectedValue(new ApiError(413, "muy grande"));
 
@@ -82,7 +84,7 @@ describe("DashboardPage", () => {
   });
 
   it("keeps focus on the search input and debounces the fetch while typing (regression)", async () => {
-    vi.mocked(fetchDashboard).mockResolvedValue({ muestras: [], alertas_desfase: [] });
+    vi.mocked(fetchDashboard).mockResolvedValue({ muestras: [], alertas_desfase: [], errores_validacion: [] });
     vi.useFakeTimers({ shouldAdvanceTime: true });
 
     renderPage();
@@ -105,7 +107,7 @@ describe("DashboardPage", () => {
   });
 
   it("does not retry the export alert once a later export succeeds", async () => {
-    vi.mocked(fetchDashboard).mockResolvedValue({ muestras: [], alertas_desfase: [] });
+    vi.mocked(fetchDashboard).mockResolvedValue({ muestras: [], alertas_desfase: [], errores_validacion: [] });
     vi.mocked(exportDashboard).mockRejectedValueOnce(new ApiError(500, "falla temporal"));
     vi.mocked(exportDashboard).mockResolvedValueOnce(new Blob());
 

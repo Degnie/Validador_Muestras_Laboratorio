@@ -148,14 +148,33 @@ class _FilaChecklist(BaseModel):
 def test_validate_rows_accepts_well_formed_rows():
     df = pd.DataFrame({"id_muestra": ["M-001"], "prueba_requerida": ["pH"]})
 
-    result = validate_rows(df, _FilaChecklist)
+    result, errores = validate_rows(df, _FilaChecklist)
 
     assert list(result.columns) == ["id_muestra", "prueba_requerida"]
     assert result["id_muestra"].iloc[0] == "M-001"
+    assert errores == []
 
 
-def test_validate_rows_rejects_row_missing_required_field():
+def test_validate_rows_skips_invalid_row_and_keeps_the_rest(tmp_path):
+    # Partial success: una fila rota no debe tirar abajo el resto del lote.
+    df = pd.DataFrame(
+        {
+            "id_muestra": ["M-001", "M-002", "M-003"],
+            "prueba_requerida": ["pH", None, "Microbiologia"],
+        }
+    )
+
+    result, errores = validate_rows(df, _FilaChecklist)
+
+    assert list(result["id_muestra"]) == ["M-001", "M-003"]
+    assert len(errores) == 1
+    assert "Fila 1" in errores[0]
+
+
+def test_validate_rows_returns_empty_result_when_every_row_is_invalid():
     df = pd.DataFrame({"id_muestra": ["M-001"], "prueba_requerida": [None]})
 
-    with pytest.raises(ValueError):
-        validate_rows(df, _FilaChecklist)
+    result, errores = validate_rows(df, _FilaChecklist)
+
+    assert result.empty
+    assert len(errores) == 1

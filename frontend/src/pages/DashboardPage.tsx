@@ -7,7 +7,7 @@ import { ApiError, exportDashboard, fetchDashboard } from "../services/api";
 import type { DashboardResponse } from "../types/muestra";
 import { triggerDownload } from "../utils/download";
 
-const DASHBOARD_VACIO: DashboardResponse = { muestras: [], alertas_desfase: [] };
+const DASHBOARD_VACIO: DashboardResponse = { muestras: [], alertas_desfase: [], errores_validacion: [] };
 
 export function DashboardPage() {
   const [query, setQuery] = useState("");

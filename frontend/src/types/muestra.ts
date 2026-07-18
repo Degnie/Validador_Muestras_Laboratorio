@@ -10,4 +10,5 @@ export interface MuestraEstado {
 export interface DashboardResponse {
   muestras: MuestraEstado[];
   alertas_desfase: string[];
+  errores_validacion: string[];
 }

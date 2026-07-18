@@ -53,3 +53,69 @@ de solo lectura, sin tocar los procesos ni los Excel originales.
   código; solo se fijó `rapidfuzz` explícito en `requirements.txt` para que
   esa dependencia real deje de estar oculta detrás de `thefuzz`. El stack
   elegido (React + FastAPI + Pandas) no cambió.
+
+## Hardening de seguridad, resiliencia y contenedores (implementado)
+
+Puntos que rondas sucesivas de auditoría suelen volver a pedir. Ya están
+resueltos dentro del stack de la sección "Decisión" (sin ORM, sin cola de
+mensajes, sin base de datos nueva); esta sección es la referencia rápida
+para no reabrirlos sin revisar antes el código y el `CHANGELOG.md`.
+
+- **Ingesta resiliente a memoria y a filas rotas**: `read_excel_normalized`
+  (`backend/app/services/ingestion.py`) usa `openpyxl` en modo `read_only`
+  y arma el `DataFrame` por lotes (`batch_size`), sin cargar el workbook
+  completo en memoria — desde 1.1.0. `validate_rows` es *partial success*
+  desde 1.5.0: una fila que no pasa el schema Pydantic se descarta y se
+  reporta en `DashboardResponse.errores_validacion`, sin abortar el resto
+  del lote; solo un archivo completo ilegible (extensión falsa, magic
+  bytes, Zip Bomb, zip corrupto) sigue devolviendo 422.
+- **Sanitización de excepciones**: `sanitized_error_handler`
+  (`backend/app/main.py`, `@app.exception_handler(Exception)`) captura todo
+  error no controlado, lo loguea server-side y devuelve siempre
+  `{"detail": "Error interno del servidor"}` con 500 — nunca el mensaje ni
+  el traceback real. Vigente desde 1.1.0.
+- **Umbrales de fuzzy matching parametrizados**: `fuzzy_correct_threshold` /
+  `fuzzy_search_threshold` viven en `backend/app/core/config.py`
+  (override por `FUZZY_CORRECT_THRESHOLD` / `FUZZY_SEARCH_THRESHOLD`) e
+  inyectados en `correct_ids`/`search_by_code` desde `api/muestras.py`.
+  Desde 1.5.0.
+- **Contenedores de mínimo privilegio**: `backend/Dockerfile` corre como
+  `appuser` (no root) y sirve con `gunicorn -k uvicorn.workers.UvicornWorker`
+  (servidor de producción, no `uvicorn --reload`). `frontend/Dockerfile` es
+  multi-stage (build en `node:20-slim`, se sirve con
+  `nginxinc/nginx-unprivileged:alpine`, puerto 8080 sin root). Vigente
+  desde 1.1.0.
+- **Cabeceras de seguridad y CSP**: `SecurityHeadersMiddleware`
+  (`backend/app/core/middleware.py`) agrega HSTS, `X-Content-Type-Options`,
+  `X-Frame-Options` y `Referrer-Policy` a toda respuesta de la API;
+  `frontend/nginx.conf` agrega el mismo set más `Content-Security-Policy`
+  (`default-src 'self'`) a las respuestas estáticas. Vigente desde 1.2.0
+  (backend) / 1.2.0 (nginx).
+- **Límites de payload y rate limiting**: `MaxBodySizeMiddleware` (413 si
+  `Content-Length` > 1 MB) y `RateLimitMiddleware` (429 + `Retry-After`,
+  ventana deslizante en memoria por IP) en `backend/app/core/middleware.py`.
+  Vigente desde 1.1.0 (body size) / 1.2.0 (rate limit).
+- **Cancelación de requests obsoletas (race conditions) en el frontend**:
+  `fetchDashboard`/`exportDashboard` (`frontend/src/services/api.ts`)
+  aceptan un `AbortSignal`; `DashboardPage` usa el `signal` que la propia
+  `queryFn` de TanStack Query inyecta y aborta automáticamente cuando
+  `debouncedQuery` cambia (input con `useDebounce`) o el componente se
+  desmonta, en vez de un `AbortController` manual. Vigente desde 1.3.0.
+- **Interceptor centralizado de errores HTTP en el frontend**: `fetchJson`
+  + la clase `ApiError` (`api.ts`) traducen todo `4xx`/`5xx` y toda falla de
+  red a un tipo único con `friendlyMessage`, consumido por `Dashboard.tsx`
+  como banner. `ErrorBoundary.tsx` es la red aparte para errores de
+  *render* de React (no HTTP), no un reemplazo del interceptor. Vigente
+  desde 1.1.0 (interceptor) / 1.2.0 (`ErrorBoundary`).
+- **Descarga de reportes sin bloquear el hilo principal**: `exportDashboard`
+  ya resuelve el archivo como `Blob` vía `response.blob()` (asíncrono);
+  `triggerDownload` (`frontend/src/utils/download.ts`) solo crea el
+  `<a download>` temporario y dispara el click — no hay parsing ni
+  transformación de datos ahí que justifique mover trabajo a un Web
+  Worker para el volumen de filas que maneja esta app.
+
+Ninguno de estos puntos introdujo una tecnología, ORM, base de datos o cola
+de mensajes fuera de las fijadas en "Decisión". Detalle de qué se evaluó y
+se descartó explícitamente: `CHANGELOG.md` (secciones "Rechazado /
+Descartado" de cada versión) y `docs/TESTING_STRATEGY.md` (sección
+"4. Decisiones Históricas y Deuda Técnica").

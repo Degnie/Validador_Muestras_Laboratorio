@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.5.0] - 2026-07-18
+
+### Añadido (Added)
+* `errores_validacion: list[str]` en `DashboardResponse` (`backend/app/models/schemas.py`): lista los mensajes de fila descartada por `/api/muestras` y `/api/muestras/buscar`. Reflejado en el frontend (`muestra.ts`, `api.ts::isDashboardResponse`) y mostrado en un banner nuevo (`Dashboard.tsx`, clase `.alerta-validacion`) que no oculta la tabla de resultados.
+* `fuzzy_correct_threshold` / `fuzzy_search_threshold` en `backend/app/core/config.py` (con overrides `FUZZY_CORRECT_THRESHOLD` / `FUZZY_SEARCH_THRESHOLD`), inyectados en `correct_ids`/`search_by_code` desde `api/muestras.py` en vez de usar los defaults hardcodeados de `fuzzy_match.py`.
+* Tests de hardening (`test_hardening.py`): query param malformado (inyección/HTML) y query param excesivamente largo (50k caracteres) contra `/api/muestras/buscar`, verificando que el middleware/endpoint no crashee.
+* Tests de partial success (`test_ingestion.py`, `test_api.py`): fila inválida descartada sin abortar el resto del lote, lote 100% inválido devuelve resultado vacío sin excepción.
+
+### Cambiado (Changed)
+* **`validate_rows` (`backend/app/services/ingestion.py`) ahora es partial-success**: antes abortaba la ingesta completa (`raise ValueError`) ante la primera fila que no pasara el schema Pydantic; ahora descarta solo esa fila, sigue procesando el resto, y devuelve `(DataFrame, list[str])` con un mensaje por fila descartada. Un error de *archivo* completo (extensión, magic bytes, Zip Bomb, zip corrupto) sigue abortando con 422, porque ahí no hay "resto del lote" que rescatar.
+* `test_known_http_errors_still_get_their_real_status_code` (`test_hardening.py`) ya no fuerza el 422 con una fila inválida (ese caso ahora es 200 partial-success); usa un archivo con magic bytes inválidos, que sigue siendo un error de archivo completo.
+
+### Arreglado (Fixed)
+* Ninguno en esta iteración.
+
+### Rechazado / Descartado (Rejected/Discarded)
+* **Manejador global de excepciones sanitizado, non-root + servidor ASGI de producción en `backend/Dockerfile`, multi-stage + non-root en `frontend/Dockerfile`, CSP/`X-Content-Type-Options`/`X-Frame-Options` en `nginx.conf`, `AbortController` en `api.ts` vía el `signal` de React Query, interceptor centralizado de errores HTTP (`ApiError`/`fetchJson`)**: ya estaban implementados desde 1.1.0–1.3.0 (ver esas secciones). Se verificaron contra la auditoría de esta iteración y no requirieron cambios.
+* **Refactor de `download.ts` a "procesamiento async explícito de streams"**: descartado. `exportDashboard` ya devuelve el Blob vía `response.blob()` (asíncrono, no bloqueante); `triggerDownload` solo crea el `<a>` y dispara el click, sin trabajo de parsing que valga la pena mover a un Worker para el tamaño de archivo que maneja esta app (un Excel de unas pocas decenas de miles de filas). Envolver esto en más máquina asíncrona habría sido código sin beneficio medible.
+* **Endpoint/gestión de errores por lote vía cola de mensajes o tabla de auditoría de errores**: descartado. El sistema no tiene base de datos ni cola de mensajes (ADR-001); `errores_validacion` se devuelve inline en la misma respuesta del dashboard, consistente con el resto de la arquitectura de solo lectura sobre 4 Excel.
+* **Mover el umbral de `MAX_EXCEL_SIZE_MB` / `MAX_UNCOMPRESSED_MB` / `MAX_COMPRESSION_RATIO` a `config.py`**: descartado en esta iteración. La auditoría pedía explícitamente los umbrales de *fuzzy matching*; los límites de seguridad de ingesta (Zip Bomb, tamaño) son constantes de seguridad, no parámetros de negocio para ajustar en tests, y moverlos no estaba en el alcance pedido.
+
 ## [1.4.0] - 2026-07-18
 
 ### Añadido (Added)

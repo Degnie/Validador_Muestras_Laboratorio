@@ -67,6 +67,13 @@ export function Dashboard({ data, query, onQueryChange, onExport, error }: Dashb
             </div>
           )}
 
+          {data.errores_validacion.length > 0 && (
+            <div className="alerta-validacion" role="alert">
+              {data.errores_validacion.length} fila(s) descartada(s) por datos inválidos:{" "}
+              {data.errores_validacion.join("; ")}
+            </div>
+          )}
+
           <div className="fila fila-header">
             <span>Muestra</span>
             <span>Estado</span>
