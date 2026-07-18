@@ -139,6 +139,22 @@ para no reabrirlos sin revisar antes el código y el `CHANGELOG.md`.
   `BACKEND_MEM_LIMIT=512M` documentado en `.env.example`), en vez del
   valor fijo `512M` de la iteración anterior — mismo mecanismo que
   `DATA_DIR`/`BACKEND_PORT`/`FRONTEND_PORT`, sin infraestructura nueva.
+- **Workers de Gunicorn parametrizados y acotados por memoria**: el `CMD`
+  de `backend/Dockerfile` pasa a forma shell
+  (`sh -c "exec gunicorn ... -w ${WEB_CONCURRENCY:-1} --max-requests 1000"`)
+  para poder expandir `${WEB_CONCURRENCY:-1}` en runtime (la forma exec de
+  array no expande variables de entorno); `exec` reemplaza el proceso de
+  `sh` por `gunicorn`, que sigue siendo PID 1 y recibe las señales de
+  Docker sin la capa de shell de por medio. `WEB_CONCURRENCY=1` por
+  defecto (parametrizable en `docker-compose.yml`/`.env.example`) es
+  deliberado: cada request de `/api/muestras` es CPU-bound (fuzzy
+  matching) y mantiene varios `DataFrame` de Pandas en memoria a la vez,
+  así que más workers escalan el pico de memoria casi linealmente — con
+  `BACKEND_MEM_LIMIT=512M` ya fijado, subir el paralelismo sin subir el
+  límite en la misma proporción es la ruta directa a un OOM kill.
+  `--max-requests 1000` recicla el worker periódicamente para no acumular
+  fugas de memoria en un proceso de vida larga. Detalle y justificación
+  extendida en `docs/TESTING_STRATEGY.md` secciones 2 y 4.
 - **Auditoría de seguridad vía log, no excepción, al truncar input**:
   `_sanitize_query` (`fuzzy_match.py`) emite `logger.warning` cuando una
   query supera los 200 caracteres, y sigue procesando la versión truncada

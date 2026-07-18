@@ -7,6 +7,7 @@ services:
       - ${DATA_DIR:-./data_mock}:/app/data_mock:ro
     environment:
       - DATA_DIR=/app/data_mock
+      - WEB_CONCURRENCY=${WEB_CONCURRENCY:-1}
     deploy:
       resources:
         limits:
