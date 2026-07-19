@@ -12,6 +12,7 @@ SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "no-referrer",
+    "Content-Security-Policy": "default-src 'none'",
 }
 
 

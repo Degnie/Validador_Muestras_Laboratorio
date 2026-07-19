@@ -5,6 +5,83 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 
 ## [Unreleased]
 
+### Auditoría de infraestructura y seguridad (2026-07-19)
+
+Auditoría contra la arquitectura de despliegue documentada (contenedores no-root, límites de
+memoria, hardening de cabeceras, CI/CD bloqueante). La mayoría de lo pedido ya estaba
+implementado y se verificó sin cambios: ambos `Dockerfile` con build multi-etapa, usuarios
+`appuser`/`nginx-unprivileged`, `CMD` del backend con `exec` (gunicorn como PID 1),
+`deploy.resources.limits.memory: 512M` + `WEB_CONCURRENCY=1` en `docker-compose.yml`,
+`defusedxml` para XXE, sanitización de búsqueda a 200 caracteres, y HSTS/`X-Content-Type-
+Options`/`X-Frame-Options`/CSP ya presentes en `frontend/nginx.conf`. Dos brechas reales:
+
+### Added
+- **[Backend] `Content-Security-Policy: default-src 'none'`** en `SECURITY_HEADERS`
+  (`backend/app/core/middleware.py`): la API es JSON puro, nunca sirve HTML/JS/CSS, así que
+  `'none'` es más estricto que la política de nginx (que sí necesita permitir `'self'` para
+  servir el bundle) -- cierra el hueco de que el backend, si se golpea directo (sin pasar por
+  el proxy), respondía sin CSP propia.
+- **[Infra] `.github/workflows/ci.yml`**: pipeline bloqueante con dos jobs (`backend`: `pytest`
+  sobre `backend/requirements.txt`, que ya incluye los tests de inyección de fallos para Excel
+  en `test_hardening.py`; `frontend`: `vitest run` + `tsc -b` vía `npm run build`) en cada push
+  a `main` y cada PR. No existía ningún workflow de CI antes de este cambio -- la suite de
+  tests corría solo localmente.
+
+### Rechazado / Descartado
+- **Orquestador tipo Kubernetes/Nomad**: descartado. Despliegue de nodo único (o entorno de
+  laboratorio) con `docker-compose.yml`, sin necesidad de scheduling multi-nodo, autoscaling
+  ni service discovery -- YAGNI para el volumen y topología reales de este proyecto.
+- **Malla de servicios (Istio/Linkerd)**: descartado. Dos servicios (`backend`, `frontend`) con
+  un único enlace de red (el proxy `/api/` de nginx) no justifican mTLS, circuit breaking ni
+  observabilidad de malla; `docker-compose` ya resuelve el descubrimiento entre los dos
+  contenedores por nombre de servicio.
+- **Stack de observabilidad pesado (Prometheus + Grafana + Loki)**: descartado. El
+  `HEALTHCHECK` de Docker (`backend/Dockerfile`) y los logs de contenedor (`docker compose
+  logs`) cubren la necesidad operativa real de un despliegue de nodo único; un stack de
+  métricas/dashboards es infraestructura desproporcionada para esta escala.
+- **Redis (o similar) para `RateLimitMiddleware`**: ya estaba descartado en el código mismo
+  (ver comentario en `backend/app/core/middleware.py`) -- memoria in-process alcanza mientras
+  `WEB_CONCURRENCY=1` (un solo worker, un solo diccionario de hits); se reitera el mismo
+  criterio acá, no hace falta un store compartido para un solo proceso.
+
+### Auditoría UX/UI Pragmática — cierre (2026-07-19)
+
+Auditoría integral de UI/UX, accesibilidad y rendimiento frontend: **el proyecto se certifica
+en estado óptimo y maduro, sin hallazgos que requieran cambios**. Se revisó contra la ronda
+anterior (mobile-first, roles ARIA, `forced-colors`, code-splitting, `aria-live`, feedback
+táctil — ver `[1.13.0]` más abajo) y no se encontró ninguna brecha real de UX, accesibilidad
+estructural o performance que justifique tocar código. 61 tests backend + 77 frontend
+verificados en verde, `tsc -b` limpio, sin cambios de modelos, lógica de negocio, contratos de
+API/estado ni archivos de vista/estilos.
+
+### Rechazado / Descartado
+- **Librería de animación (Framer Motion u otra)**: descartado. Las transiciones que existen
+  hoy (`grid-template-rows` 0fr↔1fr en `DetalleMuestra`, `active:scale-95` en botones,
+  `motion-safe:`/`motion-reduce:` respetando la preferencia del sistema) ya cubren la
+  necesidad real con CSS nativo; una librería de animación entera sería una dependencia nueva
+  y peso de bundle para micro-interacciones que Tailwind + CSS transitions resuelven solas.
+- **Storybook (u otro workshop de componentes)**: descartado. El proyecto tiene ~10
+  componentes de presentación, todos ejercitados por los tests de Vitest + Testing Library
+  existentes (`Dashboard.test.tsx`, `AlertasPanel.test.tsx`, etc.); un workshop de componentes
+  aislado es una herramienta pensada para design systems con muchos consumidores y variantes,
+  no para un MVP interno de un solo dashboard.
+- **Rediseño visual "de tendencia" (glassmorphism, neumorfismo, gradientes decorativos,
+  etc.)**: descartado. La paleta semántica actual (`--color-primary`/`--color-success`/
+  `--color-warning`/`--color-danger`, escala Tailwind por defecto) y los neutros (`slate` en
+  claro, negro puro en oscuro) ya resuelven jerarquía visual y contraste WCAG; un rediseño
+  estético no pedido por el cliente y sin beneficio operativo para un técnico de laboratorio
+  sería estética por la estética, no una mejora real.
+- **Micro-interacciones JS adicionales (parallax, hover 3D, cursores personalizados, etc.)**:
+  descartado por la misma razón -- no aportan a la operatividad del dashboard (leer el estado
+  de una muestra rápido y sin ambigüedad) y agregan superficie de mantenimiento sin pedido
+  explícito del cliente.
+- **Selector de densidad (Cómodo/Compacto)**: se reitera el rechazo (ver historial completo en
+  `docs/TESTING_STRATEGY.md` sección 4 y `docs/ADR-001-Stack-Tecnologico.md`) -- el cliente ya
+  lo había sacado explícitamente y lo volvió a rechazar cuando se sugirió de nuevo. Esta
+  auditoría no encontró motivo para revisar esa decisión.
+
+## [1.13.0] - 2026-07-19
+
 Segunda pasada de madurez sobre la UI: mobile-first real (grilla responsiva), semántica de
 tabla con roles ARIA explícitos, soporte de `forced-colors` (Alto Contraste), feedback táctil,
 code-splitting de "Alertas pendientes", anuncio por lector de pantalla en cada auto-refresh
