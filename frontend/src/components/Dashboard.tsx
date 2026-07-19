@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { Notificacion } from "../hooks/useNotificaciones";
 import { NotificationBell } from "./NotificationBell";
@@ -18,15 +18,19 @@ const ESTADO_LABEL: Record<EstadoMuestra, string> = {
 };
 
 // Faltante = rojo (algo pedido que no se hizo); Pruebas Adicionales = naranja (una prueba de
-// más, no un error de datos, pero sí algo a revisar).
+// más, no un error de datos, pero sí algo a revisar). `forced-colors:border` asegura un
+// borde visible en modo de Alto Contraste (Windows): ese modo aplana fondos/colores
+// personalizados a los del sistema, y sin un borde explícito el badge puede perder el
+// delimitador que hoy le da `bg-*-bg` + `border-2` con color de marca.
 const ESTADO_CLASS: Record<EstadoMuestra, string> = {
-  Completo: "border-success bg-success-bg text-success",
-  Faltante: "border-danger bg-danger-bg text-danger",
-  "Pruebas Fantasma": "border-warning bg-warning-bg text-warning",
+  Completo: "border-success bg-success-bg text-success forced-colors:border",
+  Faltante: "border-danger bg-danger-bg text-danger forced-colors:border",
+  "Pruebas Fantasma": "border-warning bg-warning-bg text-warning forced-colors:border",
 };
 
-// ID del <symbol> del sprite (ver EstadoIconSprite) para cada estado -- se referencia con
-// <use> en vez de repetir el <path> completo en cada fila de la tabla.
+// ID del <symbol> del sprite -- ahora vive como markup estático al final de index.html (no
+// como componente React: es siempre el mismo SVG sin props ni lógica, así que no hace falta
+// pagar el costo de crearlo por JS en cada carga). Se referencia igual, por id, con <use>.
 const ESTADO_ICON_ID: Record<EstadoMuestra, string> = {
   Completo: "icono-completo",
   Faltante: "icono-faltante",
@@ -39,43 +43,15 @@ const SKELETON_ROW_COUNT = 8;
 // trunca por seguridad, esto es solo para no dejar que el usuario escriba de más sin avisarle.
 const MAX_QUERY_LENGTH = 200;
 
-const FILA_GRID = "grid grid-cols-[140px_180px_1fr] items-center gap-2 px-3 py-2";
+// Mobile-first: una columna que apila Muestra/Estado/Detalle en pantallas chicas (celulares,
+// donde 3 columnas de ancho fijo no entran cómodas); desde `md:` (tablets en horizontal,
+// monitores) vuelve a la grilla de 3 columnas de siempre.
+const FILA_GRID = "grid grid-cols-1 md:grid-cols-[140px_180px_1fr] items-center gap-2 px-3 py-2";
 const FOCUS_RING =
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary";
-
-// Sprite de los 3 íconos de estado (trazos de Heroicons v2 -- MIT): un solo <symbol> por
-// ícono, renderizado una vez y oculto (no ocupa layout), referenciado por cada fila con
-// <use>. Con decenas de filas en pantalla, esto evita repetir el mismo <path> completo una
-// vez por fila -- el DOM de la tabla queda con un <use> liviano en vez de un <svg> con path
-// duplicado por cada muestra.
-function EstadoIconSprite() {
-  return (
-    <svg aria-hidden="true" className="hidden">
-      <symbol id="icono-completo" viewBox="0 0 20 20" fill="currentColor">
-        <path
-          fillRule="evenodd"
-          d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z"
-          clipRule="evenodd"
-        />
-      </symbol>
-      <symbol id="icono-faltante" viewBox="0 0 20 20" fill="currentColor">
-        <path
-          fillRule="evenodd"
-          d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.19-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3a.75.75 0 01-1.5 0v-3A.75.75 0 0110 6zm0 8a.9.9 0 100-1.8.9.9 0 000 1.8z"
-          clipRule="evenodd"
-        />
-      </symbol>
-      <symbol id="icono-adicional" viewBox="0 0 20 20" fill="currentColor">
-        <path d="M10 6a2 2 0 100 4 2 2 0 000-4z" />
-        <path
-          fillRule="evenodd"
-          d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
-          clipRule="evenodd"
-        />
-      </symbol>
-    </svg>
-  );
-}
+// Feedback táctil: todo control clickeable se achica un poco al presionar (no solo al pasar
+// el mouse), para que en una tablet de laboratorio el toque se sienta reconocido.
+const TACTIL = "active:scale-95 transition-transform";
 
 function IconoEstado({ estado }: { estado: EstadoMuestra }) {
   return (
@@ -136,6 +112,14 @@ function IconoContraer() {
   );
 }
 
+function IconoEscoba() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+      <path d="M11.983 1.907a.75.75 0 00-1.292-.657l-1.5 2.25a.75.75 0 00.093.949l.964.964-6.038 6.038a2.652 2.652 0 000 3.75l.591.591a2.652 2.652 0 003.75 0l6.038-6.038.964.964a.75.75 0 00.949.093l2.25-1.5a.75.75 0 00-.657-1.292l-1.164.233-1.393-1.393-1.393-1.393.233-1.164z" />
+    </svg>
+  );
+}
+
 function IconoCampana({ activa }: { activa: boolean }) {
   return (
     <svg viewBox="0 0 20 20" fill={activa ? "currentColor" : "none"} stroke="currentColor" strokeWidth={activa ? 0 : 1.5} className="h-4 w-4" aria-hidden="true">
@@ -172,17 +156,19 @@ interface FilaProps {
 
 function Fila({ muestra, expandida, onToggleExpand }: FilaProps) {
   return (
-    <div className={`${FILA_GRID} border-b border-line text-sm hover:bg-primary/5`}>
-      <button
-        type="button"
-        onClick={() => onToggleExpand(muestra.id_muestra)}
-        aria-expanded={expandida}
-        aria-controls={idPanelDetalle(muestra.id_muestra)}
-        className="truncate text-left font-mono font-semibold text-ink underline decoration-dotted underline-offset-2 hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-      >
-        {muestra.id_muestra}
-      </button>
-      <span>
+    <div role="row" className={`${FILA_GRID} border-b border-line text-sm hover:bg-primary/5`}>
+      <span role="cell">
+        <button
+          type="button"
+          onClick={() => onToggleExpand(muestra.id_muestra)}
+          aria-expanded={expandida}
+          aria-controls={idPanelDetalle(muestra.id_muestra)}
+          className={`truncate text-left font-mono font-semibold text-ink underline decoration-dotted underline-offset-2 hover:text-primary ${TACTIL} ${FOCUS_RING}`}
+        >
+          {muestra.id_muestra}
+        </button>
+      </span>
+      <span role="cell">
         <span
           className={`inline-flex items-center gap-1 border-2 px-2.5 py-0.5 font-display text-[0.6875rem] font-extrabold tracking-wide uppercase ${ESTADO_CLASS[muestra.estado]}`}
         >
@@ -190,7 +176,9 @@ function Fila({ muestra, expandida, onToggleExpand }: FilaProps) {
           {ESTADO_LABEL[muestra.estado]}
         </span>
       </span>
-      <span className="truncate text-ink-soft">{detalle(muestra)}</span>
+      <span role="cell" className="truncate text-ink-soft">
+        {detalle(muestra)}
+      </span>
     </div>
   );
 }
@@ -200,13 +188,15 @@ interface DetalleMuestraProps {
   expandida: boolean;
   tieneAlerta: (id_muestra: string, prueba: string) => boolean;
   onCrearAlerta: (id_muestra: string, prueba: string) => void;
+  onColapsar: () => void;
 }
 
 // Envuelve el contenido en un CSS Grid de una sola fila cuya altura (grid-template-rows) se
 // anima entre 0fr (colapsado) y 1fr (abierto) -- una transición de "altura automática" real,
 // sin medir el alto en JS. `overflow-hidden` en el wrapper interno es lo que hace que 0fr
-// recorte el contenido en vez de mostrarlo comprimido.
-function DetalleMuestra({ muestra, expandida, tieneAlerta, onCrearAlerta }: DetalleMuestraProps) {
+// recorte el contenido en vez de mostrarlo comprimido (estricto: sin esto, el contenido se
+// desbordaría visible durante toda la animación en vez de recortarse a 0).
+function DetalleMuestra({ muestra, expandida, tieneAlerta, onCrearAlerta, onColapsar }: DetalleMuestraProps) {
   const exigidas = nombresExigidos(muestra);
   const porNombre = new Map(muestra.pruebas.map((p) => [p.nombre_prueba, p]));
 
@@ -218,63 +208,82 @@ function DetalleMuestra({ muestra, expandida, tieneAlerta, onCrearAlerta }: Deta
       style={{ gridTemplateRows: expandida ? "1fr" : "0fr" }}
     >
       <div className="overflow-hidden">
-        <div className="border-l-4 border-primary bg-surface px-4 py-3 text-sm shadow-sm">
+        {/* forced-colors:border-transparent: en Alto Contraste, `shadow-sm` desaparece (los
+            navegadores ignoran box-shadow ahí) y el sistema ya dibuja su propio borde de
+            enfoque/superficie -- se deja transparente para no pelear con ese color forzado. */}
+        <div className="border-l-4 border-primary bg-surface px-4 py-3 text-sm shadow-sm forced-colors:border-transparent">
           <p className="mb-2 font-display text-[0.6875rem] font-bold tracking-widest text-ink-soft uppercase">
             {muestra.id_muestra} · Tipo de análisis: <span className="text-ink">{muestra.tipo_analisis}</span>
           </p>
-          <table className="w-full border-collapse text-left">
-            <thead>
-              <tr className="border-b border-line-strong text-[0.6875rem] font-bold tracking-wide text-ink-soft uppercase">
-                <th className="py-1 pr-2">Prueba</th>
-                <th className="py-1 pr-2">Resultado</th>
-                <th className="py-1 pr-2">Valor</th>
-                <th className="py-1 pr-2">Técnico</th>
-                <th className="py-1 pr-2">Fecha</th>
-                <th className="py-1 pr-2">Alerta</th>
-              </tr>
-            </thead>
-            <tbody>
-              {exigidas.map((nombre) => {
-                const encontrada = porNombre.get(nombre);
-                const activa = tieneAlerta(muestra.id_muestra, nombre);
-                return (
-                  <tr key={nombre} className={`border-b border-line ${!encontrada ? "bg-danger-bg text-danger" : ""}`}>
-                    <td className="py-1.5 pr-2 font-semibold">{nombre}</td>
-                    <td className="py-1.5 pr-2">{encontrada ? encontrada.resultado : "Faltante"}</td>
-                    <td className="py-1.5 pr-2">{encontrada?.valor ?? "—"}</td>
-                    <td className="py-1.5 pr-2">{encontrada?.tecnico ?? "—"}</td>
-                    <td className="py-1.5 pr-2">{encontrada?.fecha ?? "—"}</td>
-                    <td className="py-1.5 pr-2">
-                      {!encontrada && (
-                        <button
-                          type="button"
-                          onClick={() => onCrearAlerta(muestra.id_muestra, nombre)}
-                          aria-pressed={activa}
-                          aria-label={`Avisarme cuando ${nombre} se complete para ${muestra.id_muestra}`}
-                          className={`focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${activa ? "text-primary" : "text-danger hover:text-primary"}`}
-                        >
-                          <IconoCampana activa={activa} />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-              {muestra.pruebas_fantasma.map((nombre) => {
-                const encontrada = porNombre.get(nombre);
-                return (
-                  <tr key={nombre} className="border-b border-line bg-warning-bg text-warning">
-                    <td className="py-1.5 pr-2 font-semibold">{nombre} (adicional)</td>
-                    <td className="py-1.5 pr-2">{encontrada?.resultado ?? "—"}</td>
-                    <td className="py-1.5 pr-2">{encontrada?.valor ?? "—"}</td>
-                    <td className="py-1.5 pr-2">{encontrada?.tecnico ?? "—"}</td>
-                    <td className="py-1.5 pr-2">{encontrada?.fecha ?? "—"}</td>
-                    <td className="py-1.5 pr-2" />
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          {/* max-h + overflow-y-auto: si el checklist de la muestra tiene muchas pruebas, la
+              tabla scrollea acá adentro en vez de estirar la fila indefinidamente; el botón
+              "Contraer" queda pegado (`sticky bottom-2`) al pie de esa zona de scroll, así
+              no hace falta volver a subir para cerrar el panel. */}
+          <div className="max-h-72 overflow-y-auto">
+            <table className="w-full border-collapse text-left">
+              <thead>
+                <tr className="border-b border-line-strong text-[0.6875rem] font-bold tracking-wide text-ink-soft uppercase">
+                  <th className="py-1 pr-2">Prueba</th>
+                  <th className="py-1 pr-2">Resultado</th>
+                  <th className="py-1 pr-2">Valor</th>
+                  <th className="py-1 pr-2">Técnico</th>
+                  <th className="py-1 pr-2">Fecha</th>
+                  <th className="py-1 pr-2">Alerta</th>
+                </tr>
+              </thead>
+              <tbody>
+                {exigidas.map((nombre) => {
+                  const encontrada = porNombre.get(nombre);
+                  const activa = tieneAlerta(muestra.id_muestra, nombre);
+                  return (
+                    <tr key={nombre} className={`border-b border-line ${!encontrada ? "bg-danger-bg text-danger" : ""}`}>
+                      <td className="py-1.5 pr-2 font-semibold">{nombre}</td>
+                      <td className="py-1.5 pr-2">{encontrada ? encontrada.resultado : "Faltante"}</td>
+                      <td className="py-1.5 pr-2">{encontrada?.valor ?? "—"}</td>
+                      <td className="py-1.5 pr-2">{encontrada?.tecnico ?? "—"}</td>
+                      <td className="py-1.5 pr-2">{encontrada?.fecha ?? "—"}</td>
+                      <td className="py-1.5 pr-2">
+                        {!encontrada && (
+                          <button
+                            type="button"
+                            onClick={() => onCrearAlerta(muestra.id_muestra, nombre)}
+                            aria-pressed={activa}
+                            aria-label={`Avisarme cuando ${nombre} se complete para ${muestra.id_muestra}`}
+                            className={`${TACTIL} ${FOCUS_RING} ${activa ? "text-primary" : "text-danger hover:text-primary"}`}
+                          >
+                            <IconoCampana activa={activa} />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {muestra.pruebas_fantasma.map((nombre) => {
+                  const encontrada = porNombre.get(nombre);
+                  return (
+                    <tr key={nombre} className="border-b border-line bg-warning-bg text-warning">
+                      <td className="py-1.5 pr-2 font-semibold">{nombre} (adicional)</td>
+                      <td className="py-1.5 pr-2">{encontrada?.resultado ?? "—"}</td>
+                      <td className="py-1.5 pr-2">{encontrada?.valor ?? "—"}</td>
+                      <td className="py-1.5 pr-2">{encontrada?.tecnico ?? "—"}</td>
+                      <td className="py-1.5 pr-2">{encontrada?.fecha ?? "—"}</td>
+                      <td className="py-1.5 pr-2" />
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <div className="sticky bottom-2 mt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={onColapsar}
+                className={`inline-flex items-center gap-1.5 border border-line-strong bg-surface px-3 py-1.5 font-display text-[0.6875rem] font-bold tracking-wide text-ink uppercase shadow-sm hover:bg-paper ${TACTIL} ${FOCUS_RING}`}
+              >
+                <IconoContraer />
+                Contraer
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -311,6 +320,10 @@ interface DashboardProps {
   // sincronización real. `dataUpdatedAt` sí cambia en cada fetch exitoso, tenga o no
   // contenido distinto.
   ultimaSyncTimestamp: number;
+  // Para el indicador de "próximo refresco" -- ver más abajo en el propio componente.
+  intervaloAutoRefreshMs: number;
+  autoRefreshPausado: boolean;
+  onFilaExpandidaChange?: (hayFilaExpandida: boolean) => void;
   tieneAlerta: (id_muestra: string, prueba: string) => boolean;
   onCrearAlerta: (id_muestra: string, prueba: string) => void;
   notificaciones: Notificacion[];
@@ -330,6 +343,9 @@ export function Dashboard({
   isLoading,
   isFetching,
   ultimaSyncTimestamp,
+  intervaloAutoRefreshMs,
+  autoRefreshPausado,
+  onFilaExpandidaChange,
   tieneAlerta,
   onCrearAlerta,
   notificaciones,
@@ -340,9 +356,39 @@ export function Dashboard({
   onVerAlertas,
 }: DashboardProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [scrolled, setScrolled] = useState(false);
+  const [segundosRestantes, setSegundosRestantes] = useState(0);
+  const resultadosRef = useRef<HTMLDivElement>(null);
 
   function toggleExpand(id_muestra: string) {
     setExpandedId((current) => (current === id_muestra ? null : id_muestra));
+  }
+
+  // El auto-refresh se pausa (en DashboardPage) mientras haya una fila expandida, para no
+  // interrumpir a alguien leyendo el detalle -- este efecto es lo único que le avisa al padre
+  // que la avisa "hay/no hay algo expandido", sin subir todo el estado `expandedId`.
+  useEffect(() => {
+    onFilaExpandidaChange?.(expandedId !== null);
+  }, [expandedId, onFilaExpandidaChange]);
+
+  // Cuenta regresiva "muy sutil" hasta el próximo auto-refresh, recalculada cada segundo a
+  // partir de la última sincronización real -- no es su propio timer de refetch, solo lectura
+  // para mostrar en el header (el refetch real lo maneja React Query en DashboardPage).
+  useEffect(() => {
+    if (autoRefreshPausado) return;
+    function actualizar() {
+      const transcurrido = Date.now() - ultimaSyncTimestamp;
+      const restante = Math.max(0, Math.ceil((intervaloAutoRefreshMs - transcurrido) / 1000));
+      setSegundosRestantes(restante);
+    }
+    actualizar();
+    const id = setInterval(actualizar, 1000);
+    return () => clearInterval(id);
+  }, [ultimaSyncTimestamp, intervaloAutoRefreshMs, autoRefreshPausado]);
+
+  function limpiarBusqueda() {
+    onQueryChange("");
+    resultadosRef.current?.focus();
   }
 
   return (
@@ -350,7 +396,6 @@ export function Dashboard({
       className="mx-auto flex max-w-5xl flex-col border border-line bg-surface p-4 md:p-6"
       aria-label="Panel de validación de muestras"
     >
-      <EstadoIconSprite />
       {/* z-20, más alto que el encabezado sticky de la tabla (z-10) más abajo: al ser un
           contenedor con posición/z-index propios, el header entero (incluido el desplegable
           del buzón de notificaciones que cuelga de él) es una única unidad de apilamiento --
@@ -372,6 +417,14 @@ export function Dashboard({
             {ultimaSyncTimestamp
               ? `última sincronización ${SYNC_TIME_FORMAT.format(new Date(ultimaSyncTimestamp))}`
               : "sincronizando…"}
+            <br />
+            {/* Indicador muy sutil (texto chico, tono apagado) -- no compite visualmente con
+                nada, es solo contexto para quien quiera saber cuándo se refresca solo. */}
+            <span className="text-[0.7rem] normal-case text-ink-soft/70">
+              {autoRefreshPausado
+                ? "auto-refresh en pausa (hay una fila expandida)"
+                : `próximo refresco en ${segundosRestantes}s`}
+            </span>
           </p>
         </div>
 
@@ -402,7 +455,7 @@ export function Dashboard({
             type="button"
             onClick={() => setExpandedId(null)}
             disabled={expandedId === null}
-            className={`inline-flex items-center gap-1.5 border border-line-strong bg-transparent px-4 py-2 font-display text-[0.8125rem] font-bold tracking-wide text-ink uppercase hover:bg-paper disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS_RING}`}
+            className={`inline-flex items-center gap-1.5 border border-line-strong bg-transparent px-4 py-2 font-display text-[0.8125rem] font-bold tracking-wide text-ink uppercase hover:bg-paper disabled:cursor-not-allowed disabled:opacity-50 ${TACTIL} ${FOCUS_RING}`}
           >
             <IconoContraer />
             Contraer todo
@@ -410,7 +463,7 @@ export function Dashboard({
           <button
             type="button"
             onClick={onExport}
-            className={`border border-primary bg-primary px-4 py-2 font-display text-[0.8125rem] font-bold tracking-wide text-white uppercase hover:bg-primary-hover ${FOCUS_RING}`}
+            className={`border border-primary bg-primary px-4 py-2 font-display text-[0.8125rem] font-bold tracking-wide text-white uppercase hover:bg-primary-hover ${TACTIL} ${FOCUS_RING}`}
           >
             Exportar a Excel
           </button>
@@ -418,7 +471,7 @@ export function Dashboard({
             type="button"
             onClick={onActualizar}
             aria-busy={isFetching || undefined}
-            className={`inline-flex items-center gap-1.5 border border-line-strong bg-transparent px-4 py-2 font-display text-[0.8125rem] font-bold tracking-wide text-ink uppercase hover:bg-paper ${FOCUS_RING}`}
+            className={`inline-flex items-center gap-1.5 border border-line-strong bg-transparent px-4 py-2 font-display text-[0.8125rem] font-bold tracking-wide text-ink uppercase hover:bg-paper ${TACTIL} ${FOCUS_RING}`}
           >
             <IconoActualizar girando={Boolean(isFetching)} />
             Actualizar
@@ -426,7 +479,7 @@ export function Dashboard({
           <button
             type="button"
             onClick={onVerAlertas}
-            className={`relative inline-flex items-center gap-1.5 border border-line-strong bg-transparent px-4 py-2 font-display text-[0.8125rem] font-bold tracking-wide text-ink uppercase hover:bg-paper ${FOCUS_RING}`}
+            className={`relative inline-flex items-center gap-1.5 border border-line-strong bg-transparent px-4 py-2 font-display text-[0.8125rem] font-bold tracking-wide text-ink uppercase hover:bg-paper ${TACTIL} ${FOCUS_RING}`}
           >
             <IconoListaAlertas />
             Alertas pendientes
@@ -460,58 +513,82 @@ export function Dashboard({
           )}
 
           <div
+            ref={resultadosRef}
             role="region"
             aria-label="Resultados de la búsqueda"
             aria-busy={isLoading || undefined}
-            className="mt-4 border border-line"
+            tabIndex={-1}
+            className="mt-4 border border-line focus:outline-none"
           >
-            <div
-              className={`${FILA_GRID} sticky top-0 z-10 border-b border-line-strong bg-paper font-display text-[0.6875rem] font-bold tracking-widest text-ink-soft uppercase`}
-            >
-              <span>Muestra</span>
-              <span>Estado</span>
-              <span>Detalle</span>
+            <div role="table" aria-label="Muestras">
+              <div role="rowgroup">
+                <div
+                  role="row"
+                  className={`${FILA_GRID} sticky top-0 z-10 bg-paper font-display text-[0.6875rem] font-bold tracking-widest text-ink-soft uppercase transition-shadow ${
+                    scrolled ? "border-b-2 border-line-strong shadow-md" : "border-b border-line-strong"
+                  }`}
+                >
+                  <span role="columnheader">Muestra</span>
+                  <span role="columnheader">Estado</span>
+                  <span role="columnheader">Detalle</span>
+                </div>
+              </div>
+              {isLoading ? (
+                <TablaSkeleton />
+              ) : data.muestras.length === 0 ? (
+                <div className="flex flex-col items-center gap-3 px-4 py-10 text-center text-sm text-ink-soft">
+                  <p>No se encontraron muestras. Probá con otro código.</p>
+                  {query && (
+                    <button
+                      type="button"
+                      onClick={limpiarBusqueda}
+                      className={`inline-flex items-center gap-1.5 border border-line-strong bg-transparent px-4 py-2 font-display text-[0.8125rem] font-bold tracking-wide text-ink uppercase hover:bg-paper ${TACTIL} ${FOCUS_RING}`}
+                    >
+                      <IconoEscoba />
+                      Limpiar búsqueda
+                    </button>
+                  )}
+                </div>
+              ) : (
+                // Lista mapeada (no virtualizada): el panel de detalle se inserta justo debajo
+                // de la fila que se expande, empujando el resto hacia abajo con el flujo normal
+                // del documento. react-window no soporta bien alturas de fila variables, y para
+                // el volumen de muestras que maneja esta app no se justifica reescribir la
+                // virtualización -- si el dataset crece a miles de filas, retomar
+                // virtualización con medición dinámica de altura.
+                //
+                // DetalleMuestra se monta siempre (no solo cuando está expandida): la
+                // transición de grid-template-rows (0fr <-> 1fr) necesita que el elemento ya
+                // esté en el DOM antes de cambiar de estado para poder animar tanto la
+                // apertura como el cierre -- si se montara/desmontara condicionalmente, la
+                // primera apertura no tendría desde dónde animar. Para el volumen de esta app
+                // (decenas de filas) el costo de tener las N tablas de detalle colapsadas en
+                // el DOM es aceptable; con miles de filas convendría montarla recién al primer
+                // click y no volver a desmontarla.
+                <div
+                  role="rowgroup"
+                  className="max-h-[520px] overflow-y-auto"
+                  onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 0)}
+                >
+                  {data.muestras.map((muestra) => (
+                    <div key={muestra.id_muestra}>
+                      <Fila
+                        muestra={muestra}
+                        expandida={expandedId === muestra.id_muestra}
+                        onToggleExpand={toggleExpand}
+                      />
+                      <DetalleMuestra
+                        muestra={muestra}
+                        expandida={expandedId === muestra.id_muestra}
+                        tieneAlerta={tieneAlerta}
+                        onCrearAlerta={onCrearAlerta}
+                        onColapsar={() => setExpandedId(null)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            {isLoading ? (
-              <TablaSkeleton />
-            ) : data.muestras.length === 0 ? (
-              <div className="px-4 py-10 text-center text-sm text-ink-soft">
-                No se encontraron muestras. Probá con otro código.
-              </div>
-            ) : (
-              // Lista mapeada (no virtualizada): el panel de detalle se inserta justo debajo
-              // de la fila que se expande, empujando el resto hacia abajo con el flujo normal
-              // del documento. react-window no soporta bien alturas de fila variables, y para
-              // el volumen de muestras que maneja esta app no se justifica reescribir la
-              // virtualización -- si el dataset crece a miles de filas, retomar
-              // virtualización con medición dinámica de altura.
-              //
-              // DetalleMuestra se monta siempre (no solo cuando está expandida): la
-              // transición de grid-template-rows (0fr <-> 1fr) necesita que el elemento ya
-              // esté en el DOM antes de cambiar de estado para poder animar tanto la
-              // apertura como el cierre -- si se montara/desmontara condicionalmente, la
-              // primera apertura no tendría desde dónde animar. Para el volumen de esta app
-              // (decenas de filas) el costo de tener las N tablas de detalle colapsadas en
-              // el DOM es aceptable; con miles de filas convendría montarla recién al primer
-              // click y no volver a desmontarla.
-              <div className="max-h-[520px] overflow-y-auto">
-                {data.muestras.map((muestra) => (
-                  <div key={muestra.id_muestra}>
-                    <Fila
-                      muestra={muestra}
-                      expandida={expandedId === muestra.id_muestra}
-                      onToggleExpand={toggleExpand}
-                    />
-                    <DetalleMuestra
-                      muestra={muestra}
-                      expandida={expandedId === muestra.id_muestra}
-                      tieneAlerta={tieneAlerta}
-                      onCrearAlerta={onCrearAlerta}
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </>
       )}

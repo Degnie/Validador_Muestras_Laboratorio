@@ -4,15 +4,45 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Validador de Muestras de Laboratorio</title>
-    <!-- Vite ya inyecta modulepreload para el grafo real de dependencias del build de
-         producción; este hint explícito para el entrypoint solo acelera el caso en que el
-         navegador todavía no descubrió el <script type="module"> de abajo (algunos
-         navegadores empiezan a precargar módulos referenciados por <link modulepreload>
-         antes de terminar de parsear el resto del <head>). -->
-    <link rel="modulepreload" href="/src/main.tsx" />
+    <!-- Las 3 fuentes que carga el primer render (main.css las declara @font-face con
+         font-display: swap): sin este hint el navegador recién las descubre al parsear el
+         CSS, un roundtrip más tarde que si las precarga en paralelo con el HTML. -->
+    <link rel="preload" as="font" type="font/woff2" href="/src/assets/fonts/archivo-variable.woff2" crossorigin />
+    <link rel="preload" as="font" type="font/woff2" href="/src/assets/fonts/ibm-plex-mono-400.woff2" crossorigin />
+    <link rel="preload" as="font" type="font/woff2" href="/src/assets/fonts/ibm-plex-mono-500.woff2" crossorigin />
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+
+    <!-- Sprite de íconos de estado (Completo/Faltante/Pruebas Adicionales), estático en el
+         HTML en vez de un componente React (`EstadoIconSprite`, ver Dashboard.tsx): el mismo
+         markup siempre, sin lógica ni props -- no hace falta pagar el costo (por chico que
+         sea) de crearlo por JS en cada carga cuando el navegador puede parsearlo directo del
+         documento. `Dashboard.tsx` sigue referenciándolo por id con `<use href="#icono-...">`. -->
+    <svg aria-hidden="true" style="display: none">
+      <symbol id="icono-completo" viewBox="0 0 20 20" fill="currentColor">
+        <path
+          fill-rule="evenodd"
+          d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z"
+          clip-rule="evenodd"
+        />
+      </symbol>
+      <symbol id="icono-faltante" viewBox="0 0 20 20" fill="currentColor">
+        <path
+          fill-rule="evenodd"
+          d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.19-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3a.75.75 0 01-1.5 0v-3A.75.75 0 0110 6zm0 8a.9.9 0 100-1.8.9.9 0 000 1.8z"
+          clip-rule="evenodd"
+        />
+      </symbol>
+      <symbol id="icono-adicional" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M10 6a2 2 0 100 4 2 2 0 000-4z" />
+        <path
+          fill-rule="evenodd"
+          d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
+          clip-rule="evenodd"
+        />
+      </symbol>
+    </svg>
   </body>
 </html>

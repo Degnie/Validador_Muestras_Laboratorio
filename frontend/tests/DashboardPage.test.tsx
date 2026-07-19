@@ -131,6 +131,52 @@ describe("DashboardPage", () => {
     vi.useRealTimers();
   });
 
+  it("pauses the auto-refresh while a row is expanded, and resumes it once collapsed", async () => {
+    vi.mocked(fetchDashboard).mockResolvedValue({
+      muestras: [
+        {
+          id_muestra: "M-001",
+          estado: "Completo",
+          tipo_analisis: "Agua Potable",
+          pruebas_faltantes: [],
+          pruebas_fantasma: [],
+          pruebas: [],
+        },
+      ],
+      alertas_desfase: [],
+      errores_validacion: [],
+    });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    renderPage();
+    await vi.waitFor(() => expect(screen.getByText("M-001")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText("M-001"));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchDashboard).toHaveBeenCalledTimes(1); // pausado: no hubo un segundo fetch
+
+    fireEvent.click(screen.getByText("M-001")); // colapsa de nuevo
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchDashboard).toHaveBeenCalledTimes(2); // se reanudó
+
+    vi.useRealTimers();
+  });
+
+  it("announces successful background refreshes via an aria-live region, but not the initial load", async () => {
+    vi.mocked(fetchDashboard).mockResolvedValue({ muestras: [], alertas_desfase: [], errores_validacion: [] });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    renderPage();
+    await vi.waitFor(() => expect(fetchDashboard).toHaveBeenCalledTimes(1));
+    expect(document.querySelector('[aria-live="polite"]')).toHaveTextContent("");
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.waitFor(() => expect(fetchDashboard).toHaveBeenCalledTimes(2));
+    expect(document.querySelector('[aria-live="polite"]')).toHaveTextContent(/datos actualizados/i);
+
+    vi.useRealTimers();
+  });
+
   it("keeps the search input mounted and focusable while a debounced query is still in flight (regression)", async () => {
     // Bug real reportado: con un mock que resuelve en el mismo tick, esta regresión no se ve
     // (el estado de carga dura menos que un microtask). Acá se deja la segunda consulta

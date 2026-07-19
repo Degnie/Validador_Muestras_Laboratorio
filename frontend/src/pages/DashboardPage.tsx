@@ -1,7 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
-import { AlertasPanel } from "../components/AlertasPanel";
 import { Dashboard } from "../components/Dashboard";
 import { useToast } from "../components/Toast";
 import { useAlertas } from "../hooks/useAlertas";
@@ -10,6 +9,12 @@ import { useNotificaciones } from "../hooks/useNotificaciones";
 import { ApiError, exportDashboard, fetchDashboard, postNotificacion } from "../services/api";
 import type { DashboardResponse } from "../types/muestra";
 import { triggerDownload } from "../utils/download";
+
+// Aísla el peso de "Alertas pendientes" (su propia tabla, botones, export) del chunk inicial
+// -- se pide igual (el panel queda siempre montado, ver más abajo), pero como un chunk
+// separado que el navegador puede cachear aparte y que no infla el bundle que se parsea al
+// arrancar la página.
+const AlertasPanel = lazy(() => import("../components/AlertasPanel").then((m) => ({ default: m.AlertasPanel })));
 
 const DASHBOARD_VACIO: DashboardResponse = { muestras: [], alertas_desfase: [], errores_validacion: [] };
 
@@ -25,9 +30,15 @@ const INTERVALO_AUTO_REFRESH_MS = 60_000;
 export function DashboardPage() {
   const [query, setQuery] = useState("");
   const [vista, setVista] = useState<"dashboard" | "alertas">("dashboard");
+  // Mientras el usuario tiene una muestra expandida (leyendo el detalle), un refresh en
+  // segundo plano podría reordenar/actualizar la fila debajo suyo -- se pausa el polling
+  // hasta que la cierre. `Dashboard` avisa este estado por callback, no lo sube entero.
+  const [hayFilaExpandida, setHayFilaExpandida] = useState(false);
+  const [anuncioSr, setAnuncioSr] = useState("");
   const debouncedQuery = useDebounce(query, 300);
   const { showToast, dismissToast } = useToast();
   const exportToastId = useRef<number | null>(null);
+  const primeraCargaHecha = useRef(false);
   const { listaAlertas, tieneAlerta, crearAlerta, resolverAlerta } = useAlertas();
   const { notificaciones, noLeidas, agregarNotificacion, marcarTodasLeidas } = useNotificaciones();
 
@@ -41,7 +52,7 @@ export function DashboardPage() {
     // carga inicial. keepPreviousData mantiene la tabla anterior mientras llega la respuesta
     // nueva, así el input (y el foco) nunca se destruyen entre letras.
     placeholderData: keepPreviousData,
-    refetchInterval: INTERVALO_AUTO_REFRESH_MS,
+    refetchInterval: hayFilaExpandida ? false : INTERVALO_AUTO_REFRESH_MS,
   });
 
   // Cada alerta activa es una prueba puntual (id_muestra + nombre) que el usuario marcó como
@@ -60,6 +71,19 @@ export function DashboardPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
+
+  // Anuncio para lectores de pantalla cada vez que un fetch exitoso trae una respuesta nueva
+  // (auto-refresh, "Actualizar" o una búsqueda) -- `dataUpdatedAt` cambia en cada éxito, tenga
+  // o no contenido distinto (ver comentario en Dashboard.tsx sobre structural sharing). Se
+  // salta la carga inicial: recién montado no hay "actualización" que anunciar todavía.
+  useEffect(() => {
+    if (!dataUpdatedAt) return;
+    if (!primeraCargaHecha.current) {
+      primeraCargaHecha.current = true;
+      return;
+    }
+    setAnuncioSr(`Datos actualizados a las ${new Date(dataUpdatedAt).toLocaleTimeString("es-PE")}`);
+  }, [dataUpdatedAt]);
 
   function handleCrearAlerta(id_muestra: string, prueba: string) {
     const creada = crearAlerta(id_muestra, prueba);
@@ -85,12 +109,20 @@ export function DashboardPage() {
     }
   }
 
-  // Los dos paneles quedan siempre montados; se alterna cuál se ve con la clase `hidden` en
-  // vez de renderizar uno u otro condicionalmente. Desmontar el Dashboard al pasar a
-  // "Alertas pendientes" perdía el scroll de la tabla y la fila expandida -- con `hidden`,
-  // el DOM (y ese estado) se conserva mientras el usuario va y vuelve entre vistas.
   return (
     <>
+      {/* aria-live: no se ve (sr-only), solo lo escucha un lector de pantalla cuando el
+          texto cambia -- "polite" espera a que el usuario no esté en medio de otra lectura,
+          no interrumpe como "assertive". */}
+      <div aria-live="polite" className="sr-only">
+        {anuncioSr}
+      </div>
+
+      {/* Los dos paneles quedan siempre montados; se alterna cuál se ve con la clase `hidden`
+          en vez de renderizar uno u otro condicionalmente. Desmontar el Dashboard al pasar a
+          "Alertas pendientes" perdía el scroll de la tabla y la fila expandida -- con
+          `hidden`, el DOM (y ese estado) se conserva mientras el usuario va y vuelve entre
+          vistas. */}
       <div hidden={vista !== "dashboard"}>
         <Dashboard
           data={data ?? DASHBOARD_VACIO}
@@ -101,6 +133,9 @@ export function DashboardPage() {
           isLoading={isPending}
           isFetching={isFetching}
           ultimaSyncTimestamp={dataUpdatedAt}
+          intervaloAutoRefreshMs={INTERVALO_AUTO_REFRESH_MS}
+          autoRefreshPausado={hayFilaExpandida}
+          onFilaExpandidaChange={setHayFilaExpandida}
           tieneAlerta={tieneAlerta}
           onCrearAlerta={handleCrearAlerta}
           notificaciones={notificaciones}
@@ -112,12 +147,14 @@ export function DashboardPage() {
         />
       </div>
       <div hidden={vista !== "alertas"}>
-        <AlertasPanel
-          listaAlertas={listaAlertas}
-          onVolver={() => setVista("dashboard")}
-          onActualizar={() => void refetch()}
-          isFetching={isFetching}
-        />
+        <Suspense fallback={null}>
+          <AlertasPanel
+            listaAlertas={listaAlertas}
+            onVolver={() => setVista("dashboard")}
+            onActualizar={() => void refetch()}
+            isFetching={isFetching}
+          />
+        </Suspense>
       </div>
     </>
   );

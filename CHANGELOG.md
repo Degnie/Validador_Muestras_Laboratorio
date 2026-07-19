@@ -5,6 +5,89 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 
 ## [Unreleased]
 
+Segunda pasada de madurez sobre la UI: mobile-first real (grilla responsiva), semántica de
+tabla con roles ARIA explícitos, soporte de `forced-colors` (Alto Contraste), feedback táctil,
+code-splitting de "Alertas pendientes", anuncio por lector de pantalla en cada auto-refresh
+exitoso, y una cuenta regresiva sutil al próximo refresco (que se pausa si hay una fila
+expandida). Sin cambios de modelos, lógica de negocio ni contratos de API/estado -- se pidió
+también reintroducir un selector de densidad (Cómodo/Compacto) junto al `ThemeToggle`, pero
+se omitió a propósito: el usuario ya había pedido sacar ese control explícitamente hacía poco.
+
+### Added
+- **[Frontend] Grilla responsiva, mobile-first** (`Dashboard.tsx::FILA_GRID`): `grid-cols-1`
+  en pantallas chicas (Muestra/Estado/Detalle apilados, uno por línea) y
+  `md:grid-cols-[140px_180px_1fr]` desde tablet en horizontal/monitor -- antes la grilla de 3
+  columnas de ancho fijo era la única variante, apretada en un celular.
+- **[Frontend] Roles ARIA explícitos en la tabla** (`Dashboard.tsx`): el layout de resultados
+  (hecho con `<div>` + CSS Grid, no un `<table>` nativo) ahora expone `role="table"` en el
+  contenedor, `role="rowgroup"` para el encabezado y para el cuerpo, `role="row"` en cada fila
+  (encabezado y datos) y `role="columnheader"`/`role="cell"` en cada celda -- un lector de
+  pantalla lo navega como una tabla real en vez de una lista de `<div>` sin semántica.
+- **[Frontend] Soporte de `forced-colors` (Alto Contraste de Windows)**: los badges de estado
+  suman `forced-colors:border` (ese modo aplana fondos/colores de marca a los del sistema, y
+  sin un borde explícito el badge perdía su delimitador); el panel de detalle expandido suma
+  `forced-colors:border-transparent` (su `shadow-sm` desaparece en Alto Contraste, y dejar el
+  borde de marca transparente evita pelear con el borde que el sistema fuerza).
+- **[Frontend] Feedback táctil** (`active:scale-95 transition-transform` en botones y
+  campanitas de alerta): en una tablet de laboratorio, un toque ahora se siente reconocido con
+  una reacción visual inmediata, no solo con el `hover` (que un dedo nunca dispara).
+- **[Frontend] Sombra en el encabezado de la tabla al hacer scroll** (`Dashboard.tsx`): la
+  fila "Muestra/Estado/Detalle" suma `shadow-md` + borde más marcado apenas el cuerpo de la
+  tabla se desplaza (`onScroll` sobre el contenedor con `overflow-y-auto`), como delimitador
+  visual claro de que hay contenido "debajo" del header sticky.
+- **[Frontend] Botón "Contraer" pegajoso dentro del detalle** (`Dashboard.tsx::DetalleMuestra`):
+  la tabla de pruebas de una muestra pasa a un contenedor `max-h-72 overflow-y-auto` propio
+  (para checklists largos), con un botón "Contraer" en `sticky bottom-2` dentro de esa misma
+  zona de scroll -- no hace falta volver a subir para cerrar el panel.
+- **[Frontend] CTA "Limpiar búsqueda" en el estado vacío**: si una búsqueda no encuentra
+  nada, aparece un botón que limpia el input y devuelve el foco a la región de resultados
+  (`tabIndex={-1}` + `.focus()` programático) -- solo se muestra cuando el vacío es producto
+  de una búsqueda (`query` no vacío), no en el estado vacío "de verdad".
+- **[Frontend] Sprite de íconos como HTML estático** (`index.html`): el `<svg>` con los 3
+  `<symbol>` de estado pasa de un componente React (`EstadoIconSprite`, renderizado en cada
+  montaje de `Dashboard`) a markup fijo al final de `<body>` -- el mismo contenido siempre,
+  sin props ni lógica, así que no hace falta pagar el costo de crearlo por JS.
+- **[Frontend] `<link rel="preload">` para las 3 fuentes locales** (`index.html`): sin este
+  hint, el navegador recién las descubre al parsear `main.css`; con `crossorigin` (fuentes
+  siempre cuentan como carga "anónima" aunque sean same-origin, si no se declara el navegador
+  las descarga dos veces).
+- **[Frontend] `AlertasPanel` con `React.lazy`/`Suspense`** (`DashboardPage.tsx`): separa su
+  chunk (`AlertasPanel-*.js`, ~4 KB/1.6 KB gzip, verificado con un build real) del chunk de
+  `DashboardPage` -- el panel sigue montado siempre (`hidden`, no desmontado, para conservar
+  su estado), así que el chunk se pide enseguida igual, pero queda cacheable aparte y no
+  infla el bundle que el navegador parsea al arrancar.
+- **[Frontend] Anuncio por lector de pantalla en cada auto-refresh** (`DashboardPage.tsx`):
+  una región `aria-live="polite"` (`sr-only`, invisible) dice "Datos actualizados a las
+  {hora}" cada vez que `dataUpdatedAt` cambia -- salvo en la carga inicial, que no es una
+  "actualización". Cubre auto-refresh, "Actualizar" manual y una búsqueda nueva por igual.
+- **[Frontend] Cuenta regresiva al próximo auto-refresh, pausada con una fila expandida**
+  (`Dashboard.tsx` + `DashboardPage.tsx`): texto chico y apagado bajo "última sincronización"
+  ("próximo refresco en Ns"), recalculado cada segundo a partir de `ultimaSyncTimestamp` --
+  no es un timer de refetch propio, solo lectura para mostrar. `Dashboard` avisa por callback
+  (`onFilaExpandidaChange`) cuándo hay una fila abierta; `DashboardPage` usa ese booleano para
+  poner `refetchInterval: false` mientras tanto, así un refresh en segundo plano no reordena
+  la fila que el técnico está leyendo.
+
+### Fixed
+- **`<link rel="modulepreload" href="/src/main.tsx">` rompía el build de producción**
+  (arrastrado de una iteración anterior, encontrado al verificar este cambio con un build
+  real): Vite no sabe resolver ese archivo como el entrypoint vía un `<link>` genérico (ya lo
+  maneja aparte por el propio `<script type="module">`), y terminaba incrustando el código
+  fuente TypeScript crudo como un data URI base64 dentro del HTML final --
+  `dist/index.html` bajaba de 2.95 KB a 4.39 KB por esto. Se sacó: Vite ya genera solo los
+  `modulepreload` que hacen falta de verdad (`vendor-react`, `vendor-query`) automáticamente.
+
+### Rechazado / Descartado
+- **Selector de densidad (Cómodo/Compacto) junto al `ThemeToggle`**: pedido en este prompt,
+  descartado -- el usuario había pedido sacar ese control (botón "Vista compacta") en una
+  iteración anterior ("ya no suma"); reintroducirlo bajo otro nombre habría revertido ese
+  pedido explícito sin que lo pidiera de nuevo. Confirmado con el usuario antes de omitirlo.
+- **Roles ARIA de tabla también en `DetalleMuestra`**: no hacía falta -- esa tabla de
+  pruebas ya es un `<table>` HTML nativo (con `<thead>`/`<tbody>`/`<tr>`/`<th>`/`<td>` reales),
+  tiene la semántica correcta sin necesidad de ARIA explícito.
+
+## [1.12.0] - 2026-07-19
+
 Refactor de la capa de presentación: transiciones suaves para la fila expandible, persistencia
 del DOM (scroll, filas abiertas) al alternar entre el dashboard y "Alertas pendientes",
 paleta semántica alineada a los tonos por defecto de Tailwind, y varios refuerzos de

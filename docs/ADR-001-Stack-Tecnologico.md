@@ -192,6 +192,12 @@ para no reabrirlos sin revisar antes el código y el `CHANGELOG.md`.
   procesos ni los Excel originales" de este ADR. El único endpoint no-`GET` de la API
   (`POST /api/notificaciones`) hace el *append* en un thread aparte (`run_in_threadpool`) para
   no bloquear el event loop con I/O de archivo sincrónico.
+- **Sin selector de densidad (Cómodo/Compacto) en la UI**: decisión explícita del cliente, no
+  una omisión. El control se sacó por pedido directo ("ya no suma") y se rechazó reintroducirlo
+  cuando una ronda posterior lo volvió a pedir (confirmado con el cliente antes de descartarlo
+  de nuevo, ver `CHANGELOG.md` y `docs/TESTING_STRATEGY.md` sección 4 para el historial
+  completo). Las clases `.density-compact`/`.density-comfortable` siguen en `main.css` como
+  punto de extensión sin usar, por si el cliente lo pide de nuevo más adelante.
 
 Ninguno de estos puntos introdujo una tecnología, ORM, base de datos o cola
 de mensajes fuera de las fijadas en "Decisión". Detalle de qué se evaluó y

@@ -58,6 +58,8 @@ function setup(overrides: Partial<React.ComponentProps<typeof Dashboard>> = {}) 
       onAbrirNotificaciones={onAbrirNotificaciones}
       onActualizar={onActualizar}
       ultimaSyncTimestamp={Date.now()}
+      intervaloAutoRefreshMs={60_000}
+      autoRefreshPausado={false}
       alertasPendientesCount={0}
       onVerAlertas={onVerAlertas}
       {...overrides}
@@ -123,6 +125,8 @@ describe("Dashboard", () => {
         alertasPendientesCount={0}
         onVerAlertas={() => {}}
         ultimaSyncTimestamp={t1}
+        intervaloAutoRefreshMs={60_000}
+        autoRefreshPausado={false}
       />,
     );
 
@@ -298,5 +302,56 @@ describe("Dashboard", () => {
     setup({ alertasPendientesCount: 0 });
 
     expect(screen.getByRole("button", { name: /alertas pendientes/i })).not.toHaveTextContent(/\d/);
+  });
+
+  it("exposes the results grid with table/row/cell ARIA roles for assistive tech", () => {
+    setup();
+
+    expect(screen.getByRole("table", { name: /muestras/i })).toBeInTheDocument();
+    const encabezados = screen.getAllByRole("columnheader");
+    expect(encabezados.map((c) => c.textContent)).toEqual(["Muestra", "Estado", "Detalle"]);
+    const filas = screen.getAllByRole("row");
+    // La fila de encabezado + una por muestra (3 en el fixture).
+    expect(filas.length).toBe(4);
+    expect(screen.getAllByRole("cell").length).toBeGreaterThan(0);
+  });
+
+  it("shows a 'Limpiar búsqueda' CTA on the empty state that clears the query and refocuses the results", () => {
+    const { onQueryChange } = setup({ data: { ...data, muestras: [] }, query: "M-999" });
+
+    const boton = screen.getByRole("button", { name: /limpiar búsqueda/i });
+    fireEvent.click(boton);
+
+    expect(onQueryChange).toHaveBeenCalledWith("");
+    expect(screen.getByRole("region", { name: /resultados/i })).toHaveFocus();
+  });
+
+  it("does not show the 'Limpiar búsqueda' CTA when the empty state isn't due to a search", () => {
+    setup({ data: { ...data, muestras: [] }, query: "" });
+
+    expect(screen.queryByRole("button", { name: /limpiar búsqueda/i })).not.toBeInTheDocument();
+  });
+
+  it("notifies the parent when a row expands or collapses, for pausing auto-refresh", () => {
+    const onFilaExpandidaChange = vi.fn();
+    setup({ onFilaExpandidaChange });
+
+    fireEvent.click(screen.getByText("M-001"));
+    expect(onFilaExpandidaChange).toHaveBeenLastCalledWith(true);
+
+    fireEvent.click(screen.getByText("M-001"));
+    expect(onFilaExpandidaChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("shows a paused message instead of the countdown when auto-refresh is paused", () => {
+    setup({ autoRefreshPausado: true });
+
+    expect(screen.getByText(/auto-refresh en pausa/i)).toBeInTheDocument();
+  });
+
+  it("shows a countdown to the next auto-refresh when not paused", () => {
+    setup({ autoRefreshPausado: false, ultimaSyncTimestamp: Date.now(), intervaloAutoRefreshMs: 60_000 });
+
+    expect(screen.getByText(/próximo refresco en \d+s/i)).toBeInTheDocument();
   });
 });
