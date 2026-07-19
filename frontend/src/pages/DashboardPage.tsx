@@ -16,7 +16,7 @@ export function DashboardPage() {
   const { showToast, dismissToast } = useToast();
   const exportToastId = useRef<number | null>(null);
 
-  const { data, error, isPending } = useQuery({
+  const { data, error, isPending, isFetching } = useQuery({
     queryKey: ["muestras", debouncedQuery],
     // El signal lo provee y aborta React Query (al desmontar o al quedar obsoleta la query
     // por un nuevo debouncedQuery), no un AbortController manual.
@@ -53,6 +53,7 @@ export function DashboardPage() {
       onExport={handleExport}
       error={error instanceof ApiError ? error : null}
       isLoading={isPending}
+      isFetching={isFetching}
     />
   );
 }

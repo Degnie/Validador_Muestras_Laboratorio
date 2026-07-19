@@ -22,3 +22,14 @@
 body {
   font-family: var(--font-sans);
 }
+
+/* Densidad de fila para las regiones de resultados (Dashboard). No hay un toggle de UI
+   todavía que las aplique -- quedan disponibles como punto de extensión pedido, sin
+   sobreingeniería de un selector de densidad no solicitado. */
+.density-compact > * {
+  padding-block: 0.5rem;
+}
+
+.density-comfortable > * {
+  padding-block: 1rem;
+}
