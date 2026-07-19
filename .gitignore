@@ -9,3 +9,5 @@ frontend/tsconfig.tsbuildinfo
 
 *.log
 .DS_Store
+
+.claude/

@@ -10,11 +10,17 @@ import { queryClient } from "./services/queryClient";
 // inicial (header, providers), así el HTML inicial pinta antes de que llegue ese JS.
 const DashboardPage = lazy(() => import("./pages/DashboardPage").then((m) => ({ default: m.DashboardPage })));
 
+// El título vive en Dashboard.tsx (dentro del mismo "sheet" que la búsqueda y la tabla,
+// para que se lea como una sola hoja -- ver el prototipo). Este skeleton es lo único que
+// se pinta antes de que cargue el bundle lazy, así que reproduce el mismo marco de borde.
 function PageSkeleton() {
   return (
-    <div aria-hidden="true" className="mx-auto max-w-5xl animate-pulse p-4 md:p-6">
-      <div className="mb-4 h-10 rounded-lg bg-gray-200" />
-      <div className="h-64 rounded-lg bg-gray-100" />
+    <div
+      aria-hidden="true"
+      className="mx-auto max-w-5xl animate-pulse border border-line bg-surface p-4 md:p-6"
+    >
+      <div className="mb-4 h-14 border-b-2 border-line" />
+      <div className="h-64 bg-paper" />
     </div>
   );
 }
@@ -24,13 +30,8 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
         <ErrorBoundary>
-          <div className="min-h-screen bg-gray-50">
-            <header className="border-b border-gray-200 bg-white px-4 py-4 md:px-6">
-              <h1 className="text-lg font-semibold text-gray-900">
-                Validador Centralizado de Muestras de Laboratorio
-              </h1>
-            </header>
-            <main>
+          <div className="min-h-screen bg-paper">
+            <main className="p-4 md:p-6">
               <Suspense fallback={<PageSkeleton />}>
                 <DashboardPage />
               </Suspense>

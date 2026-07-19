@@ -1,22 +1,58 @@
 @import "tailwindcss";
 
-/* Paleta semántica + tipografía del rediseño. Inter/Geist no se cargan por CDN a propósito
-   (violaría la CSP `style-src 'self'; connect-src 'self'` ya vigente en nginx.conf, que no
-   se toca en esta iteración); "Inter" queda como preferencia en el stack, con fallback a la
-   fuente sans-serif nativa del sistema operativo si no está instalada localmente. */
-@theme {
-  --font-sans:
-    Inter, "Geist Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
-    sans-serif;
+/* Rediseño "manifiesto de laboratorio" (prototipo aprobado por el usuario, ver
+   docs del experimento en el historial de conversación) -- Archivo/IBM Plex Mono
+   autoalojadas (frontend/src/assets/fonts, OFL) en vez de Google Fonts por CDN,
+   por la misma razón que ya regía Inter/Geist: la CSP `default-src 'self'` de
+   nginx.conf no se toca en esta iteración, y self-host la cumple sin cambios. */
+@font-face {
+  font-family: "Archivo";
+  font-weight: 500 800;
+  font-display: swap;
+  src: url("./assets/fonts/archivo-variable.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/ibm-plex-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-weight: 500;
+  font-display: swap;
+  src: url("./assets/fonts/ibm-plex-mono-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-weight: 600;
+  font-display: swap;
+  src: url("./assets/fonts/ibm-plex-mono-600.woff2") format("woff2");
+}
 
-  --color-primary: #0056b3;
-  --color-primary-hover: #00458f;
-  --color-success: #28a745;
-  --color-success-bg: #e8f6ea;
-  --color-danger: #dc3545;
-  --color-danger-bg: #fbe7e9;
-  --color-warning: #ffc107;
-  --color-warning-bg: #fff8e1;
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Archivo", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+
+  /* Acento + neutros del manifiesto (no el "AI blue" #0056b3 anterior). */
+  --color-primary: #0e6e63;
+  --color-primary-hover: #0b5850;
+  --color-paper: #edf2ef;
+  --color-surface: #ffffff;
+  --color-line: #c7d2cc;
+  --color-line-strong: #9fb0a6;
+  --color-ink: #1c2321;
+  --color-ink-soft: #4c564f;
+
+  /* Semántico, separado del acento: éxito/falta/fantasma. Contraste verificado
+     >= 4.5:1 texto sobre fondo (ver auditoría del experimento). */
+  --color-success: #2f7a3d;
+  --color-success-bg: #e4f1e6;
+  --color-warning: #8a5a0f;
+  --color-warning-bg: #f6ecd6;
+  --color-danger: #a32b2b;
+  --color-danger-bg: #f8e4e1;
 }
 
 body {
