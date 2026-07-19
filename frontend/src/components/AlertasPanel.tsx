@@ -1,26 +1,9 @@
+import { useToast } from "./Toast";
 import type { AlertaActiva } from "../hooks/useAlertas";
+import { ApiError, exportAlertasPendientes } from "../services/api";
 import { triggerDownload } from "../utils/download";
 
 const FECHA_FORMAT = new Intl.DateTimeFormat("es-PE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-
-// Reporte de alertas pendientes: vive enteramente en el cliente (localStorage), así que se
-// exporta como .csv generado a mano -- el navegador no sabe escribir .xlsx nativamente, y
-// sumar una librería (exceljs/sheetjs) solo para este reporte chico sería sobreingeniería.
-// Excel abre un .csv sin problema (doble click o "Abrir con").
-function celdaCsv(valor: string): string {
-  return `"${valor.replace(/"/g, '""')}"`;
-}
-
-function exportarAlertasCsv(listaAlertas: AlertaActiva[]): void {
-  const encabezado = ["ID", "Prueba_pendiente", "Alerta_creada"].map(celdaCsv).join(",");
-  const filas = listaAlertas.map((a) =>
-    [a.id_muestra, a.prueba, FECHA_FORMAT.format(new Date(a.creada))].map(celdaCsv).join(","),
-  );
-  // BOM UTF-8 al inicio: sin esto, Excel en Windows interpreta el archivo como ANSI y
-  // rompe los acentos/ñ del contenido.
-  const contenido = "﻿" + [encabezado, ...filas].join("\r\n");
-  triggerDownload(new Blob([contenido], { type: "text/csv;charset=utf-8" }), "alertas_pendientes.csv");
-}
 const FOCUS_RING =
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary";
 
@@ -57,6 +40,18 @@ interface AlertasPanelProps {
 }
 
 export function AlertasPanel({ listaAlertas, onVolver, onActualizar, isFetching }: AlertasPanelProps) {
+  const { showToast } = useToast();
+
+  async function handleExportar() {
+    try {
+      const blob = await exportAlertasPendientes(listaAlertas);
+      triggerDownload(blob, "alertas_pendientes.xlsx");
+    } catch (err) {
+      const apiError = err instanceof ApiError ? err : new ApiError(0, "Error al exportar");
+      showToast(apiError.friendlyMessage, "error");
+    }
+  }
+
   return (
     <section
       className="mx-auto flex max-w-5xl flex-col border border-line bg-surface p-4 md:p-6"
@@ -95,7 +90,7 @@ export function AlertasPanel({ listaAlertas, onVolver, onActualizar, isFetching 
           </button>
           <button
             type="button"
-            onClick={() => exportarAlertasCsv(listaAlertas)}
+            onClick={() => void handleExportar()}
             disabled={listaAlertas.length === 0}
             className={`border border-primary bg-primary px-4 py-2 font-display text-[0.8125rem] font-bold tracking-wide text-white uppercase hover:bg-primary-hover disabled:cursor-not-allowed disabled:border-line-strong disabled:bg-line-strong ${FOCUS_RING}`}
           >

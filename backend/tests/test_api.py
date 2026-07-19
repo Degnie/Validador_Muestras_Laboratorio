@@ -65,6 +65,13 @@ def test_get_muestras_reports_partial_success_when_a_checklist_row_is_invalid(tm
     assert "M-002" not in {m["id_muestra"] for m in body["muestras"]}
     assert len(body["errores_validacion"]) == 1
     assert "Fila 1" in body["errores_validacion"][0]
+    # Mensaje para un técnico, no jerga de pydantic ("Input should be a valid string"): el
+    # nombre de columna legible + un código en vez del texto crudo de la excepción. Una celda
+    # vacía en un Excel llega como NaN (no como clave ausente), así que pydantic la reporta
+    # como tipo inválido (VAL-002), no como campo faltante (VAL-001).
+    assert "prueba requerida" in body["errores_validacion"][0]
+    assert "VAL-002" in body["errores_validacion"][0]
+    assert "Input" not in body["errores_validacion"][0]
 
 
 def test_buscar_returns_only_matching_codes(tmp_path):
@@ -123,6 +130,76 @@ def test_exportar_returns_a_readable_xlsx(tmp_path):
     detalle = hojas["Detalle_pruebas"]
     assert list(detalle.columns) == ["ID", "Prueba", "Resultado", "Valor", "Tecnico", "Fecha"]
     assert "pH" in detalle.loc[detalle["ID"] == "M-001", "Prueba"].values
+
+
+def test_exportar_formats_headers_and_widens_columns(tmp_path):
+    # El técnico no debe tener que agrandar las columnas a mano ni adivinar dónde empieza el
+    # encabezado -- ver el pedido explícito en el CHANGELOG de esta iteración.
+    import io
+
+    from openpyxl import load_workbook
+
+    _write_dataset(tmp_path)
+    app = create_app(Settings(data_dir=tmp_path))
+    client = TestClient(app)
+
+    response = client.get("/api/muestras/exportar")
+
+    wb = load_workbook(io.BytesIO(response.content))
+    for nombre_hoja in ("Resumen", "Detalle_pruebas"):
+        ws = wb[nombre_hoja]
+        encabezado = ws[1][0]
+        assert encabezado.font.bold is True
+        assert encabezado.fill.start_color.rgb == "000E6E63"
+        for columna in ws.column_dimensions.values():
+            assert columna.width is not None and columna.width >= 10
+        assert ws.freeze_panes == "A2"
+
+
+def test_exportar_alertas_pendientes_returns_a_formatted_xlsx():
+    import io
+
+    from openpyxl import load_workbook
+
+    app = create_app(Settings())
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/notificaciones/exportar",
+        json={
+            "alertas": [
+                {"id_muestra": "M-011", "prueba": "Dureza_Total", "creada": "2026-07-19T10:00:00.000+00:00"},
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    assert (
+        response.headers["content-type"]
+        == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    df = pd.read_excel(io.BytesIO(response.content), sheet_name="Alertas_pendientes")
+    assert list(df.columns) == ["ID", "Prueba_pendiente", "Alerta_creada"]
+    assert df.iloc[0]["ID"] == "M-011"
+    assert df.iloc[0]["Alerta_creada"] == "19/07/2026 10:00"
+
+    wb = load_workbook(io.BytesIO(response.content))
+    ws = wb["Alertas_pendientes"]
+    assert ws[1][0].font.bold is True
+
+
+def test_exportar_alertas_pendientes_with_no_alerts_returns_only_the_header():
+    app = create_app(Settings())
+    client = TestClient(app)
+
+    response = client.post("/api/notificaciones/exportar", json={"alertas": []})
+
+    assert response.status_code == 200
+    import io
+
+    df = pd.read_excel(io.BytesIO(response.content), sheet_name="Alertas_pendientes")
+    assert df.empty
+    assert list(df.columns) == ["ID", "Prueba_pendiente", "Alerta_creada"]
 
 
 def test_build_reporte_excel_relabels_pruebas_fantasma_and_flattens_lists():

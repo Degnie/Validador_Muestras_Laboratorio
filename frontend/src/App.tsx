@@ -2,6 +2,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { lazy, Suspense } from "react";
 
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { ThemeToggle } from "./components/ThemeToggle";
 import { ToastProvider } from "./components/Toast";
 import { queryClient } from "./services/queryClient";
 
@@ -31,6 +32,9 @@ export default function App() {
       <ToastProvider>
         <ErrorBoundary>
           <div className="min-h-screen bg-paper">
+            <div className="mx-auto flex max-w-5xl justify-end px-4 pt-4 md:px-6 md:pt-6">
+              <ThemeToggle />
+            </div>
             <main className="p-4 md:p-6">
               <Suspense fallback={<PageSkeleton />}>
                 <DashboardPage />

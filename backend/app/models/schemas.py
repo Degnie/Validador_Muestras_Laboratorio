@@ -35,3 +35,17 @@ class NotificacionEvento(BaseModel):
 
     id_muestra: str
     prueba: str
+
+
+class AlertaPendienteExport(BaseModel):
+    id_muestra: str
+    prueba: str
+    creada: str  # ISO 8601, generado por `new Date().toISOString()` en el frontend
+
+
+class AlertasPendientesExport(BaseModel):
+    """Las alertas viven en localStorage (frontend); para exportarlas como Excel con el
+    mismo formato prolijo que el resto de los reportes, el frontend se las manda al
+    backend en vez de generar el .xlsx en el navegador."""
+
+    alertas: list[AlertaPendienteExport]

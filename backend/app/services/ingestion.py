@@ -1,4 +1,5 @@
 import csv
+import logging
 import unicodedata
 import zipfile
 from pathlib import Path
@@ -10,6 +11,18 @@ from openpyxl.worksheet.worksheet import Worksheet
 from pydantic import BaseModel, ValidationError
 
 from app.core.column_aliases import COLUMN_ALIASES
+from app.core.error_codes import (
+    ARCH_CONTENIDO,
+    ARCH_EXTENSION,
+    ARCH_SOSPECHOSO,
+    ARCH_TAMANO,
+    CAMPO_LEGIBLE,
+    VAL_DATO_INVALIDO,
+    VAL_FALTA_DATO,
+    ErrorAplicacion,
+)
+
+logger = logging.getLogger(__name__)
 
 MAX_EXCEL_SIZE_MB = 20
 # Un .xlsx es un zip; openpyxl en read_only sí streamea las filas de la hoja, pero igual
@@ -42,35 +55,50 @@ def _canonical_column(name: str) -> str:
 
 
 def assert_safe_excel_file(path: Path, max_size_mb: float = MAX_EXCEL_SIZE_MB) -> None:
-    """Rejects files that aren't a plain .xlsx or that are suspiciously large before we parse them."""
+    """Rejects files that aren't a plain .xlsx or that are suspiciously large before we parse
+    them. El mensaje que lleva cada excepción ya es el texto para el técnico (ver
+    app/core/error_codes.py); el detalle técnico real (tamaños, ratios) queda en el log del
+    servidor, no en la respuesta al cliente."""
     path = Path(path)
     if path.suffix.lower() != ".xlsx":
-        raise ValueError(f"Extensión no permitida (se esperaba .xlsx): {path.suffix}")
+        logger.warning("%s: extensión %s en %s", ARCH_EXTENSION.codigo, path.suffix, path.name)
+        raise ErrorAplicacion(ARCH_EXTENSION)
     size_mb = path.stat().st_size / (1024 * 1024)
     if size_mb > max_size_mb:
-        raise ValueError(f"Archivo demasiado grande: {size_mb:.2f} MB (máximo {max_size_mb} MB)")
+        logger.warning("%s: %.2f MB (máximo %s MB) en %s", ARCH_TAMANO.codigo, size_mb, max_size_mb, path.name)
+        raise ErrorAplicacion(ARCH_TAMANO)
     with open(path, "rb") as f:
         header = f.read(len(XLSX_MAGIC_BYTES))
     if header != XLSX_MAGIC_BYTES:
-        raise ValueError("El contenido del archivo no es un .xlsx válido (magic bytes no coinciden)")
+        logger.warning("%s: magic bytes no coinciden en %s", ARCH_CONTENIDO.codigo, path.name)
+        raise ErrorAplicacion(ARCH_CONTENIDO)
 
     try:
         with zipfile.ZipFile(path) as archivo_zip:
             total_uncompressed = sum(info.file_size for info in archivo_zip.infolist())
             total_compressed = sum(info.compress_size for info in archivo_zip.infolist()) or 1
-    except zipfile.BadZipFile as exc:
-        raise ValueError(f"El archivo no es un zip/.xlsx válido: {exc}") from exc
+    except zipfile.BadZipFile:
+        logger.warning("%s: BadZipFile en %s", ARCH_CONTENIDO.codigo, path.name)
+        raise ErrorAplicacion(ARCH_CONTENIDO) from None
 
     if total_uncompressed > MAX_UNCOMPRESSED_MB * 1024 * 1024:
-        raise ValueError(
-            f"Contenido descomprimido demasiado grande: {total_uncompressed / (1024 * 1024):.2f} MB "
-            f"(máximo {MAX_UNCOMPRESSED_MB} MB) -- posible Zip Bomb"
+        logger.warning(
+            "%s: %.2f MB descomprimidos (máximo %s MB) en %s -- posible Zip Bomb",
+            ARCH_SOSPECHOSO.codigo,
+            total_uncompressed / (1024 * 1024),
+            MAX_UNCOMPRESSED_MB,
+            path.name,
         )
+        raise ErrorAplicacion(ARCH_SOSPECHOSO)
     if total_uncompressed / total_compressed > MAX_COMPRESSION_RATIO:
-        raise ValueError(
-            f"Ratio de compresión sospechoso ({total_uncompressed / total_compressed:.0f}x, "
-            f"máximo {MAX_COMPRESSION_RATIO}x) -- posible Zip Bomb"
+        logger.warning(
+            "%s: ratio de compresión %.0fx (máximo %sx) en %s -- posible Zip Bomb",
+            ARCH_SOSPECHOSO.codigo,
+            total_uncompressed / total_compressed,
+            MAX_COMPRESSION_RATIO,
+            path.name,
         )
+        raise ErrorAplicacion(ARCH_SOSPECHOSO)
 
 
 def _read_sheet_normalized(sheet: Worksheet, batch_size: int) -> pd.DataFrame:
@@ -119,7 +147,11 @@ def read_excel_multisheet_normalized(path: Path, batch_size: int = 500) -> dict[
 def validate_rows(df: pd.DataFrame, schema: type[ModelT]) -> tuple[pd.DataFrame, list[str]]:
     """Runs every row through a Pydantic schema (type coercion + required fields). A bad row
     is skipped and reported, not fatal for the rest of the batch (partial success) -- a typo
-    in one row of a 500-row Excel shouldn't block every other valid row."""
+    in one row of a 500-row Excel shouldn't block every other valid row.
+
+    El mensaje de cada fila descartada usa CAMPO_LEGIBLE + un código (VAL-001/VAL-002, ver
+    app/core/error_codes.py) en vez del texto crudo de pydantic ("Input should be a valid
+    string") -- quien lee esto es un técnico de laboratorio, no otro programador."""
     validated = []
     errores = []
     for i, row in enumerate(df.to_dict(orient="records")):
@@ -128,7 +160,10 @@ def validate_rows(df: pd.DataFrame, schema: type[ModelT]) -> tuple[pd.DataFrame,
         except ValidationError as exc:
             primer_error = exc.errors()[0]
             campo = ".".join(str(p) for p in primer_error["loc"])
-            errores.append(f"Fila {i}: {campo} - {primer_error['msg']}")
+            campo_legible = CAMPO_LEGIBLE.get(campo, campo)
+            info = VAL_FALTA_DATO if primer_error["type"] == "missing" else VAL_DATO_INVALIDO
+            mensaje = info.mensaje_usuario.format(campo=campo_legible)
+            errores.append(f"Fila {i}: {mensaje} (código {info.codigo})")
     result = pd.DataFrame(validated, columns=list(schema.model_fields.keys()))
     return result, errores
 

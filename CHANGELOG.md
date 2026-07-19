@@ -5,6 +5,111 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 
 ## [Unreleased]
 
+Modo oscuro corregido (negro neutro, no verdoso), sistema de códigos de error para que un
+técnico químico entienda el mensaje sin jerga de programador ("input", "string"), y Docker
+verificado end-to-end ahora que la virtualización ya está habilitada en la máquina.
+
+### Added
+- **[Backend] Sistema de códigos de error** (`backend/app/core/error_codes.py`): cada error
+  que puede llegarle al usuario tiene un `CodigoError` (mensaje en español sin jerga +
+  código tipo `VAL-002`/`ARCH-004`) y una excepción `ErrorAplicacion(ValueError)` que arma el
+  string final (`"{mensaje} (código {codigo})"`). `ingestion.py::validate_rows` ya no
+  expone el texto crudo de pydantic ("Input should be a valid string") en
+  `errores_validacion`: usa `CAMPO_LEGIBLE` para nombrar la columna en español y elige
+  `VAL-001` (falta el dato) o `VAL-002` (dato con formato inválido) según el tipo de error.
+  `assert_safe_excel_file` usa `ARCH-001..005` para los errores de archivo completo, y
+  loguea el detalle técnico real (tamaños, ratios de compresión) server-side vía
+  `logger.warning` en vez de devolverlo al cliente.
+- **[Docs] `docs/CODIGOS_ERROR.md`**: tabla de referencia para el programador -- cada
+  código, el mensaje que ve el técnico, y la causa técnica real (tipo de excepción, dónde se
+  genera). El dashboard nunca muestra esta tabla; es lo que hay que buscar si un técnico
+  reporta un código.
+- **[Frontend] `ApiError.esAmigable`**: `fetchJson`/`exportDashboard`/`exportAlertasPendientes`
+  ahora leen el `detail` del cuerpo de la respuesta de error (antes se descartaba: un 422
+  siempre mostraba el mismo texto genérico "Los datos recibidos son inválidos", sin importar
+  qué pasó realmente). Cuando el backend manda un `detail` (ya es el mensaje amigable +
+  código), `friendlyMessage` lo muestra tal cual; si el cuerpo no es JSON legible (ej. un 413
+  sin body), cae al mensaje genérico de siempre.
+
+### Changed
+- **[Frontend] Modo oscuro, neutros a negro puro**: `--color-paper`/`--color-surface`/
+  `--color-line`(-strong)/`--color-ink`(-soft) pasan de una familia con tinte verde
+  (`#10221d`/`#172a24`/...) a grises neutros sobre negro casi puro (`#0a0a0a`/`#131313`/...)
+  -- el ajuste de saturación de esta ronda era solo para el modo claro; el oscuro debía
+  quedar como en el diseño original. Los acentos (primary/success/warning/danger) no
+  cambiaron.
+- **[Docs] README/`.env.example`**: se quita la nota "Pendiente" sobre habilitar
+  virtualización para Docker (ya está activo en la máquina) y se corrige el comentario
+  desactualizado de `.env.example` ("4 Excel de origen" → `Datos.xlsx` +
+  `Checklist_Maestro.xlsx`, vigente desde la ingesta multipestaña).
+
+### Verificado
+- **`docker compose up --build`**: primera vez que corre en esta máquina (antes bloqueado
+  por falta de virtualización). Build de ambas imágenes limpio, contenedores healthy,
+  `GET /api/muestras` responde `200` directo al backend (`:8000`) y a través del proxy
+  `/api` de nginx en el frontend (`:5173`) -- confirma que el hardening de contenedores
+  documentado en el ADR-001 (Gunicorn+Uvicorn, usuario sin privilegios, nginx-unprivileged)
+  funciona de punta a punta, no solo en la definición de los `Dockerfile`.
+
+## [1.10.0] - 2026-07-19
+
+Comodidad para el cliente: los 2 Excel exportables (dashboard y alertas pendientes) pasan a
+tener encabezado distinguible y columnas anchas automáticamente; modo oscuro con botón
+explícito arriba de la página; y se retocó la paleta de color claro (el `warning` se veía
+casi blanco contra `--color-surface`).
+
+### Added
+- **[Backend] `services/xlsx_style.py::formatear_hoja`**: helper compartido que pone el
+  encabezado en negrita blanca sobre fondo verde-azulado (el mismo `--color-primary` del
+  frontend), le agrega bordes a toda la grilla, congela la fila de encabezado
+  (`freeze_panes`) y ensancha cada columna según su contenido más largo (min 10, max 60
+  caracteres) -- así el técnico no tiene que agrandar columnas a mano cada vez que abre el
+  archivo. Aplicado a las 3 hojas que existen hoy: `Resumen`, `Detalle_pruebas` y
+  `Alertas_pendientes`.
+- **[Backend] `POST /api/notificaciones/exportar`**: nuevo endpoint que recibe la lista de
+  alertas pendientes (viven en `localStorage`, el backend no las conoce hasta que se las
+  mandan) y devuelve un `.xlsx` real de una hoja (`ID`, `Prueba_pendiente`, `Alerta_creada`
+  ya formateada `dd/mm/aaaa hh:mm`), con el mismo `formatear_hoja`. Reemplaza al `.csv`
+  generado a mano de la iteración anterior -- ver "Rechazado" para por qué no se generó
+  `.xlsx` directo en el navegador.
+- **[Frontend] `useTheme`/`ThemeToggle`** (`frontend/src/hooks/useTheme.ts`,
+  `frontend/src/components/ThemeToggle.tsx`): botón sol/luna en una barra angosta arriba del
+  "sheet" principal (`App.tsx`), visible en las dos vistas (dashboard y alertas). Sin
+  preferencia guardada, sigue `prefers-color-scheme` del sistema operativo; un click fija
+  `data-theme` en `<html>` (persistido en `localStorage`) que manda por sobre la preferencia
+  del sistema en ambos sentidos.
+- **[Frontend] Paleta de modo oscuro completa** (`main.css`): `--color-primary`,
+  `--color-paper`/`--color-surface` (fondo de página/tarjeta), `--color-line`(-strong),
+  `--color-ink`(-soft) y los 3 semánticos (success/warning/danger, con sus `-bg` en `rgba`
+  semitransparente en vez de un sólido, para que funcionen sobre cualquier tono de fondo
+  oscuro) redefinidos bajo `@media (prefers-color-scheme: dark)` y
+  `:root[data-theme="dark"]`. Ningún componente cambió: todos ya consumían estos tokens vía
+  clases de Tailwind (`bg-paper`, `text-ink-soft`, etc.), así que redefinir las variables
+  alcanzó.
+
+### Changed
+- **[Frontend] Paleta de modo claro, contraste del `warning`**: `--color-warning` pasa de
+  `#8a5a0f` a `#9c5c02` (más saturado) y `--color-warning-bg` de `#f6ecd6` a `#fbe7bd` (más
+  cálido/saturado) -- la combinación anterior quedaba casi indistinguible contra
+  `--color-surface`. `--color-surface` pasa de `#ffffff` a `#fafcfb` (un blanco apenas
+  atenuado) para que ese fondo no "lave" los colores semánticos más suaves. `body` ahora fija
+  explícitamente `background-color`/`color` con los tokens (antes dependía del blanco por
+  defecto del navegador), para que el modo oscuro también tiña el margen fuera del "sheet".
+
+### Rechazado / Descartado
+- **Librería de generación de `.xlsx` en el navegador (sheetjs/exceljs) para el export de
+  Alertas pendientes**: descartado en esta iteración también -- ahora que ese reporte
+  necesita el mismo encabezado/columnas formateadas que el resto (pedido explícito de esta
+  ronda), se resolvió mandando los datos al backend (`POST /api/notificaciones/exportar`),
+  que ya tiene `openpyxl`/`pandas` y el helper `formatear_hoja` compartido, en vez de sumar
+  una dependencia de formato de planillas al bundle del cliente.
+- **Selector de 3 posiciones (claro/oscuro/sistema) en vez de un toggle binario**: el pedido
+  fue "un botón pequeño"; un botón de 2 estados (claro ↔ oscuro) ya cubre el caso de uso, y
+  la preferencia del sistema sigue siendo el default implícito mientras el usuario no lo
+  toque (no hace falta una tercera opción explícita para volver a "seguir al sistema").
+
+## [1.9.0] - 2026-07-19
+
 Ajustes de UX sobre la vista de detalle granular, pedidos tras revisar la iteración anterior: expansión in-line (no al pie de la lista), columna **Valor**, renombre "Pruebas Fantasma" → "Pruebas Adicionales" con su color, y alertas de finalización por prueba puntual (no por muestra completa) con protección anti-duplicados.
 
 ### Added

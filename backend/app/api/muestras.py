@@ -1,4 +1,5 @@
 import io
+import logging
 from datetime import UTC, datetime
 
 import pandas as pd
@@ -6,8 +7,9 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
+from app.core.error_codes import ARCH_CORRUPTO, ErrorAplicacion
 from app.models.ingestion_schemas import ChecklistRow, PruebaRow
-from app.models.schemas import DashboardResponse, NotificacionEvento
+from app.models.schemas import AlertasPendientesExport, DashboardResponse, NotificacionEvento
 from app.services.fuzzy_match import correct_ids, search_by_code
 from app.services.ingestion import (
     append_notificacion_csv,
@@ -18,6 +20,9 @@ from app.services.ingestion import (
     validate_rows,
 )
 from app.services.validation_rules import build_status
+from app.services.xlsx_style import formatear_hoja
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
@@ -46,10 +51,14 @@ def _build_estados(settings) -> tuple[pd.DataFrame, list[str]]:
             if datos_por_hoja
             else pd.DataFrame(columns=list(PruebaRow.model_fields.keys()))
         )
-    except ValueError as exc:
+    except ErrorAplicacion as exc:
+        # El mensaje ya es texto para el técnico + código (ver app/core/error_codes.py).
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except Exception as exc:  # openpyxl/zipfile errors on a corrupt or malicious file
-        raise HTTPException(status_code=422, detail=f"Excel ilegible: {exc}") from exc
+    except Exception as exc:  # openpyxl/pandas errors on a corrupt file with valid magic bytes
+        logger.warning("%s: %s", ARCH_CORRUPTO.codigo, exc)
+        raise HTTPException(
+            status_code=422, detail=f"{ARCH_CORRUPTO.mensaje_usuario} (código {ARCH_CORRUPTO.codigo})"
+        ) from exc
 
     master_ids = sorted(checklist["id_muestra"].unique())
     datos["id_muestra"] = correct_ids(
@@ -152,12 +161,39 @@ def exportar_muestras(request: Request) -> StreamingResponse:
     with pd.ExcelWriter(buffer) as writer:
         resumen.to_excel(writer, sheet_name="Resumen", index=False)
         detalle.to_excel(writer, sheet_name="Detalle_pruebas", index=False)
+        formatear_hoja(writer.sheets["Resumen"])
+        formatear_hoja(writer.sheets["Detalle_pruebas"])
     buffer.seek(0)
 
     return StreamingResponse(
         buffer,
         media_type=XLSX_MEDIA_TYPE,
         headers={"Content-Disposition": "attachment; filename=validacion_muestras.xlsx"},
+    )
+
+
+@router.post("/notificaciones/exportar")
+def exportar_alertas_pendientes(payload: AlertasPendientesExport) -> StreamingResponse:
+    filas = [
+        {
+            "ID": a.id_muestra,
+            "Prueba_pendiente": a.prueba,
+            "Alerta_creada": datetime.fromisoformat(a.creada).strftime("%d/%m/%Y %H:%M"),
+        }
+        for a in payload.alertas
+    ]
+    df = pd.DataFrame(filas, columns=["ID", "Prueba_pendiente", "Alerta_creada"])
+
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer) as writer:
+        df.to_excel(writer, sheet_name="Alertas_pendientes", index=False)
+        formatear_hoja(writer.sheets["Alertas_pendientes"])
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": "attachment; filename=alertas_pendientes.xlsx"},
     )
 
 

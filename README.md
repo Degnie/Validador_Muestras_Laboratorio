@@ -71,11 +71,6 @@ Backend en `:8000` (Gunicorn + Uvicorn workers, usuario sin privilegios) y front
 `/api` hacia el backend). Ambos `Dockerfile` son multi-etapa: la imagen final no incluye
 tests, `venv`/`node_modules` de desarrollo ni herramientas de build.
 
-> **Pendiente:** en esta máquina Docker requiere activar la virtualización
-> (VT-x/AMD-V) en la BIOS, lo que implica reiniciar. Queda pospuesto — mientras
-> tanto, backend y frontend se corren en local sin Docker (ver secciones de
-> arriba), que no dependen de él.
-
 ## Notas de compatibilidad
 
 Este entorno corre Python 3.14. `pandas`, `fastapi` y `pydantic` están

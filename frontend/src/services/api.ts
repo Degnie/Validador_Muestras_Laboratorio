@@ -11,16 +11,38 @@ const FRIENDLY_MESSAGES: Record<number, string> = {
 
 export class ApiError extends Error {
   readonly status: number;
+  // true cuando `detail` viene del backend y ya es texto para un técnico (mensaje en
+  // español + "(código XXX-000)", ver backend/app/core/error_codes.py) -- no una excepción
+  // cruda ni el genérico "Error al consultar ...: 422" que arma este mismo archivo cuando el
+  // cuerpo de la respuesta no se pudo leer.
+  readonly esAmigable: boolean;
 
-  constructor(status: number, detail: string) {
+  constructor(status: number, detail: string, esAmigable = false) {
     super(detail);
     this.name = "ApiError";
     this.status = status;
+    this.esAmigable = esAmigable;
   }
 
   get friendlyMessage(): string {
+    if (this.esAmigable) return this.message;
     return FRIENDLY_MESSAGES[this.status] ?? `Ocurrió un error inesperado (código ${this.status}).`;
   }
+}
+
+// El backend siempre manda `{"detail": "..."}` en sus respuestas de error (422 con código,
+// o el 500 sanitizado genérico) -- se lee ese detalle en vez de descartar el cuerpo de la
+// respuesta, para que el código de error (ARCH-.../VAL-...) le llegue al técnico.
+async function apiErrorFromResponse(response: Response, contextoGenerico: string): Promise<ApiError> {
+  try {
+    const cuerpo: unknown = await response.json();
+    if (cuerpo && typeof cuerpo === "object" && typeof (cuerpo as { detail?: unknown }).detail === "string") {
+      return new ApiError(response.status, (cuerpo as { detail: string }).detail, true);
+    }
+  } catch {
+    // el cuerpo no es JSON (ej. un 413 sin body) -- se usa el mensaje genérico de abajo.
+  }
+  return new ApiError(response.status, contextoGenerico);
 }
 
 // Guarda de contrato milimétrica: si el backend cambia la forma de la respuesta (un campo
@@ -78,7 +100,7 @@ async function fetchJson(url: string, signal?: AbortSignal): Promise<DashboardRe
   }
 
   if (!response.ok) {
-    throw new ApiError(response.status, `Error al consultar ${url}: ${response.status}`);
+    throw await apiErrorFromResponse(response, `Error al consultar ${url}: ${response.status}`);
   }
 
   const data = await response.json();
@@ -116,7 +138,36 @@ export async function exportDashboard(signal?: AbortSignal): Promise<Blob> {
     throw new ApiError(0, "No se pudo conectar para exportar");
   }
   if (!response.ok) {
-    throw new ApiError(response.status, `Error al exportar: ${response.status}`);
+    throw await apiErrorFromResponse(response, `Error al exportar: ${response.status}`);
+  }
+  return response.blob();
+}
+
+interface AlertaExport {
+  id_muestra: string;
+  prueba: string;
+  creada: string;
+}
+
+// Las alertas viven en localStorage (no hay tabla de alertas en el backend); se mandan tal
+// cual al endpoint para que arme el .xlsx con el mismo formato prolijo (encabezado
+// distinguible, columnas anchas) que el resto de los reportes, en vez de generarlo en el
+// navegador con una librería nueva solo para esto.
+export async function exportAlertasPendientes(alertas: AlertaExport[], signal?: AbortSignal): Promise<Blob> {
+  let response: Response;
+  try {
+    response = await fetch("/api/notificaciones/exportar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ alertas }),
+      signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    throw new ApiError(0, "No se pudo conectar para exportar");
+  }
+  if (!response.ok) {
+    throw await apiErrorFromResponse(response, `Error al exportar: ${response.status}`);
   }
   return response.blob();
 }

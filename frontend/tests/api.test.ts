@@ -51,6 +51,37 @@ describe("fetchDashboard", () => {
     await expect(fetchDashboard()).rejects.toMatchObject({ status: 422 });
   });
 
+  it("surfaces the backend's own detail (código de error) as the friendly message", async () => {
+    const detail = 'El dato de "técnico" no tiene un formato válido. (código VAL-002)';
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: false, status: 422, json: async () => ({ detail }) }),
+    );
+
+    let error: unknown;
+    try {
+      await fetchDashboard();
+    } catch (err) {
+      error = err;
+    }
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).friendlyMessage).toBe(detail);
+  });
+
+  it("falls back to the generic message when the error response has no readable body", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 422 }));
+
+    let error: unknown;
+    try {
+      await fetchDashboard();
+    } catch (err) {
+      error = err;
+    }
+
+    expect((error as ApiError).friendlyMessage).toMatch(/inválid/i);
+  });
+
   it("throws an ApiError with status 0 when the network fails outright", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
 

@@ -107,7 +107,7 @@ def test_assert_safe_excel_file_rejects_wrong_magic_bytes(tmp_path):
     disfrazado = tmp_path / "disfrazado.xlsx"
     disfrazado.write_bytes(b"no soy un zip aunque tenga extension .xlsx")
 
-    with pytest.raises(ValueError, match="contenido"):
+    with pytest.raises(ValueError, match="ARCH-003"):
         assert_safe_excel_file(disfrazado)
 
 
@@ -118,7 +118,9 @@ def test_assert_safe_excel_file_rejects_zip_bomb_by_uncompressed_size(tmp_path):
     with zipfile.ZipFile(bomba, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("xl/sharedStrings.xml", "A" * (250 * 1024 * 1024))
 
-    with pytest.raises(ValueError, match="Zip Bomb"):
+    # El mensaje al técnico no dice "Zip Bomb" (jerga de programador) -- eso queda en el log
+    # server-side; el código ARCH-004 es lo verificable desde afuera.
+    with pytest.raises(ValueError, match="ARCH-004"):
         assert_safe_excel_file(bomba)
 
 
@@ -129,7 +131,7 @@ def test_assert_safe_excel_file_rejects_zip_bomb_by_compression_ratio(tmp_path):
     with zipfile.ZipFile(bomba, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("xl/sharedStrings.xml", "A" * (50 * 1024 * 1024))
 
-    with pytest.raises(ValueError, match="Zip Bomb"):
+    with pytest.raises(ValueError, match="ARCH-004"):
         assert_safe_excel_file(bomba, max_size_mb=1000)
 
 
@@ -171,6 +173,22 @@ def test_validate_rows_skips_invalid_row_and_keeps_the_rest(tmp_path):
     assert list(result["id_muestra"]) == ["M-001", "M-003"]
     assert len(errores) == 1
     assert "Fila 1" in errores[0]
+    # Celda presente pero vacía (NaN) -> pydantic la ve como tipo inválido, no como campo
+    # ausente: mensaje para el técnico con nombre de columna legible + código VAL-002.
+    assert 'El dato de "prueba requerida" no tiene un formato válido.' in errores[0]
+    assert "(código VAL-002)" in errores[0]
+
+
+def test_validate_rows_reports_a_missing_column_as_a_missing_field():
+    # A diferencia de una celda vacía (NaN), una columna que directamente no está en el Excel
+    # falta como clave del dict -> pydantic la reporta como "missing" (VAL-001), no VAL-002.
+    df = pd.DataFrame({"id_muestra": ["M-001"]})  # sin "prueba_requerida"
+
+    result, errores = validate_rows(df, _FilaChecklist)
+
+    assert result.empty
+    assert 'Falta el dato de "prueba requerida" en esta fila.' in errores[0]
+    assert "(código VAL-001)" in errores[0]
 
 
 def test_validate_rows_returns_empty_result_when_every_row_is_invalid():
