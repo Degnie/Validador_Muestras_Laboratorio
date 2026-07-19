@@ -13,7 +13,10 @@ implementado y se verificó sin cambios: ambos `Dockerfile` con build multi-etap
 `appuser`/`nginx-unprivileged`, `CMD` del backend con `exec` (gunicorn como PID 1),
 `deploy.resources.limits.memory: 512M` + `WEB_CONCURRENCY=1` en `docker-compose.yml`,
 `defusedxml` para XXE, sanitización de búsqueda a 200 caracteres, y HSTS/`X-Content-Type-
-Options`/`X-Frame-Options`/CSP ya presentes en `frontend/nginx.conf`. Dos brechas reales:
+Options`/`X-Frame-Options`/CSP ya presentes en `frontend/nginx.conf`. Dos brechas reales,
+corregidas en esta ronda (ver "Added" abajo): **con eso, la infraestructura queda certificada
+en su etapa final de auditoría** -- no quedan hallazgos pendientes contra la arquitectura de
+despliegue acordada (Docker Compose de nodo único, sin orquestación distribuida).
 
 ### Added
 - **[Backend] `Content-Security-Policy: default-src 'none'`** en `SECURITY_HEADERS`
