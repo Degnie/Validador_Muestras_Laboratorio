@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import type { Notificacion } from "../hooks/useNotificaciones";
 import { NotificationBell } from "./NotificationBell";
@@ -25,6 +25,14 @@ const ESTADO_CLASS: Record<EstadoMuestra, string> = {
   "Pruebas Fantasma": "border-warning bg-warning-bg text-warning",
 };
 
+// ID del <symbol> del sprite (ver EstadoIconSprite) para cada estado -- se referencia con
+// <use> en vez de repetir el <path> completo en cada fila de la tabla.
+const ESTADO_ICON_ID: Record<EstadoMuestra, string> = {
+  Completo: "icono-completo",
+  Faltante: "icono-faltante",
+  "Pruebas Fantasma": "icono-adicional",
+};
+
 const SKELETON_ROW_COUNT = 8;
 
 // Debe coincidir con MAX_QUERY_LENGTH en backend/app/services/fuzzy_match.py -- el backend ya
@@ -35,50 +43,47 @@ const FILA_GRID = "grid grid-cols-[140px_180px_1fr] items-center gap-2 px-3 py-2
 const FOCUS_RING =
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary";
 
-// Íconos inline (a mano, trazos de Heroicons v2 -- MIT) en vez de sumar una dependencia
-// nueva solo por unos glifos de 16x16.
-function IconoCompleto() {
+// Sprite de los 3 íconos de estado (trazos de Heroicons v2 -- MIT): un solo <symbol> por
+// ícono, renderizado una vez y oculto (no ocupa layout), referenciado por cada fila con
+// <use>. Con decenas de filas en pantalla, esto evita repetir el mismo <path> completo una
+// vez por fila -- el DOM de la tabla queda con un <use> liviano en vez de un <svg> con path
+// duplicado por cada muestra.
+function EstadoIconSprite() {
   return (
-    <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 shrink-0" aria-hidden="true">
-      <path
-        fillRule="evenodd"
-        d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z"
-        clipRule="evenodd"
-      />
+    <svg aria-hidden="true" className="hidden">
+      <symbol id="icono-completo" viewBox="0 0 20 20" fill="currentColor">
+        <path
+          fillRule="evenodd"
+          d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z"
+          clipRule="evenodd"
+        />
+      </symbol>
+      <symbol id="icono-faltante" viewBox="0 0 20 20" fill="currentColor">
+        <path
+          fillRule="evenodd"
+          d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.19-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3a.75.75 0 01-1.5 0v-3A.75.75 0 0110 6zm0 8a.9.9 0 100-1.8.9.9 0 000 1.8z"
+          clipRule="evenodd"
+        />
+      </symbol>
+      <symbol id="icono-adicional" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M10 6a2 2 0 100 4 2 2 0 000-4z" />
+        <path
+          fillRule="evenodd"
+          d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
+          clipRule="evenodd"
+        />
+      </symbol>
     </svg>
   );
 }
 
-function IconoFaltante() {
+function IconoEstado({ estado }: { estado: EstadoMuestra }) {
   return (
-    <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 shrink-0" aria-hidden="true">
-      <path
-        fillRule="evenodd"
-        d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.19-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3a.75.75 0 01-1.5 0v-3A.75.75 0 0110 6zm0 8a.9.9 0 100-1.8.9.9 0 000 1.8z"
-        clipRule="evenodd"
-      />
+    <svg viewBox="0 0 20 20" className="h-4 w-4 shrink-0" aria-hidden="true">
+      <use href={`#${ESTADO_ICON_ID[estado]}`} />
     </svg>
   );
 }
-
-function IconoFantasma() {
-  return (
-    <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 shrink-0" aria-hidden="true">
-      <path d="M10 6a2 2 0 100 4 2 2 0 000-4z" />
-      <path
-        fillRule="evenodd"
-        d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
-        clipRule="evenodd"
-      />
-    </svg>
-  );
-}
-
-const ESTADO_ICON = {
-  Completo: IconoCompleto,
-  Faltante: IconoFaltante,
-  "Pruebas Fantasma": IconoFantasma,
-} satisfies Record<EstadoMuestra, () => ReturnType<typeof IconoCompleto>>;
 
 function IconoCargando() {
   return (
@@ -99,7 +104,7 @@ function IconoActualizar({ girando }: { girando: boolean }) {
     <svg
       viewBox="0 0 20 20"
       fill="currentColor"
-      className={`h-4 w-4 ${girando ? "animate-spin" : ""}`}
+      className={`h-4 w-4 ${girando ? "motion-safe:animate-spin" : ""}`}
       aria-hidden="true"
     >
       <path d="M15.312 4.63a7 7 0 10.502 8.98.75.75 0 111.19.91 8.5 8.5 0 11-.615-10.966l.66-.66a.5.5 0 01.854.354V7a.5.5 0 01-.5.5h-4.782a.5.5 0 01-.353-.854l1.044-1.045z" />
@@ -113,6 +118,18 @@ function IconoListaAlertas() {
       <path
         fillRule="evenodd"
         d="M2 4.75A2.75 2.75 0 014.75 2h10.5A2.75 2.75 0 0118 4.75v10.5A2.75 2.75 0 0115.25 18H4.75A2.75 2.75 0 012 15.25V4.75zM5 7a1 1 0 011-1h1a1 1 0 110 2H6a1 1 0 01-1-1zm4-1a1 1 0 100 2h5a1 1 0 100-2H9zM5 12a1 1 0 011-1h1a1 1 0 110 2H6a1 1 0 01-1-1zm4-1a1 1 0 100 2h5a1 1 0 100-2H9z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function IconoContraer() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        d="M14.77 12.79a.75.75 0 01-1.06-.02L10 8.832 6.29 12.77a.75.75 0 11-1.08-1.04l4.25-4.5a.75.75 0 011.08 0l4.25 4.5a.75.75 0 01-.02 1.06z"
         clipRule="evenodd"
       />
     </svg>
@@ -143,6 +160,10 @@ function nombresExigidos(muestra: MuestraEstado): string[] {
   return [...new Set([...realizadasExigidas, ...muestra.pruebas_faltantes])].sort();
 }
 
+function idPanelDetalle(id_muestra: string): string {
+  return `detalle-${id_muestra}`;
+}
+
 interface FilaProps {
   muestra: MuestraEstado;
   expandida: boolean;
@@ -150,13 +171,13 @@ interface FilaProps {
 }
 
 function Fila({ muestra, expandida, onToggleExpand }: FilaProps) {
-  const Icono = ESTADO_ICON[muestra.estado];
   return (
     <div className={`${FILA_GRID} border-b border-line text-sm hover:bg-primary/5`}>
       <button
         type="button"
         onClick={() => onToggleExpand(muestra.id_muestra)}
         aria-expanded={expandida}
+        aria-controls={idPanelDetalle(muestra.id_muestra)}
         className="truncate text-left font-mono font-semibold text-ink underline decoration-dotted underline-offset-2 hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
       >
         {muestra.id_muestra}
@@ -165,7 +186,7 @@ function Fila({ muestra, expandida, onToggleExpand }: FilaProps) {
         <span
           className={`inline-flex items-center gap-1 border-2 px-2.5 py-0.5 font-display text-[0.6875rem] font-extrabold tracking-wide uppercase ${ESTADO_CLASS[muestra.estado]}`}
         >
-          <Icono />
+          <IconoEstado estado={muestra.estado} />
           {ESTADO_LABEL[muestra.estado]}
         </span>
       </span>
@@ -176,79 +197,93 @@ function Fila({ muestra, expandida, onToggleExpand }: FilaProps) {
 
 interface DetalleMuestraProps {
   muestra: MuestraEstado;
+  expandida: boolean;
   tieneAlerta: (id_muestra: string, prueba: string) => boolean;
   onCrearAlerta: (id_muestra: string, prueba: string) => void;
 }
 
-function DetalleMuestra({ muestra, tieneAlerta, onCrearAlerta }: DetalleMuestraProps) {
+// Envuelve el contenido en un CSS Grid de una sola fila cuya altura (grid-template-rows) se
+// anima entre 0fr (colapsado) y 1fr (abierto) -- una transición de "altura automática" real,
+// sin medir el alto en JS. `overflow-hidden` en el wrapper interno es lo que hace que 0fr
+// recorte el contenido en vez de mostrarlo comprimido.
+function DetalleMuestra({ muestra, expandida, tieneAlerta, onCrearAlerta }: DetalleMuestraProps) {
   const exigidas = nombresExigidos(muestra);
   const porNombre = new Map(muestra.pruebas.map((p) => [p.nombre_prueba, p]));
 
   return (
-    <div className="border-t-2 border-ink bg-paper px-4 py-3 text-sm">
-      <p className="mb-2 font-display text-[0.6875rem] font-bold tracking-widest text-ink-soft uppercase">
-        {muestra.id_muestra} · Tipo de análisis: <span className="text-ink">{muestra.tipo_analisis}</span>
-      </p>
-      <table className="w-full border-collapse text-left">
-        <thead>
-          <tr className="border-b border-line-strong text-[0.6875rem] font-bold tracking-wide text-ink-soft uppercase">
-            <th className="py-1 pr-2">Prueba</th>
-            <th className="py-1 pr-2">Resultado</th>
-            <th className="py-1 pr-2">Valor</th>
-            <th className="py-1 pr-2">Técnico</th>
-            <th className="py-1 pr-2">Fecha</th>
-            <th className="py-1 pr-2">Alerta</th>
-          </tr>
-        </thead>
-        <tbody>
-          {exigidas.map((nombre) => {
-            const encontrada = porNombre.get(nombre);
-            const activa = tieneAlerta(muestra.id_muestra, nombre);
-            return (
-              <tr key={nombre} className={`border-b border-line ${!encontrada ? "bg-danger-bg text-danger" : ""}`}>
-                <td className="py-1.5 pr-2 font-semibold">{nombre}</td>
-                <td className="py-1.5 pr-2">{encontrada ? encontrada.resultado : "Faltante"}</td>
-                <td className="py-1.5 pr-2">{encontrada?.valor ?? "—"}</td>
-                <td className="py-1.5 pr-2">{encontrada?.tecnico ?? "—"}</td>
-                <td className="py-1.5 pr-2">{encontrada?.fecha ?? "—"}</td>
-                <td className="py-1.5 pr-2">
-                  {!encontrada && (
-                    <button
-                      type="button"
-                      onClick={() => onCrearAlerta(muestra.id_muestra, nombre)}
-                      aria-pressed={activa}
-                      aria-label={`Avisarme cuando ${nombre} se complete para ${muestra.id_muestra}`}
-                      className={`focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${activa ? "text-primary" : "text-danger hover:text-primary"}`}
-                    >
-                      <IconoCampana activa={activa} />
-                    </button>
-                  )}
-                </td>
+    <div
+      id={idPanelDetalle(muestra.id_muestra)}
+      aria-hidden={!expandida}
+      className="grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none"
+      style={{ gridTemplateRows: expandida ? "1fr" : "0fr" }}
+    >
+      <div className="overflow-hidden">
+        <div className="border-l-4 border-primary bg-surface px-4 py-3 text-sm shadow-sm">
+          <p className="mb-2 font-display text-[0.6875rem] font-bold tracking-widest text-ink-soft uppercase">
+            {muestra.id_muestra} · Tipo de análisis: <span className="text-ink">{muestra.tipo_analisis}</span>
+          </p>
+          <table className="w-full border-collapse text-left">
+            <thead>
+              <tr className="border-b border-line-strong text-[0.6875rem] font-bold tracking-wide text-ink-soft uppercase">
+                <th className="py-1 pr-2">Prueba</th>
+                <th className="py-1 pr-2">Resultado</th>
+                <th className="py-1 pr-2">Valor</th>
+                <th className="py-1 pr-2">Técnico</th>
+                <th className="py-1 pr-2">Fecha</th>
+                <th className="py-1 pr-2">Alerta</th>
               </tr>
-            );
-          })}
-          {muestra.pruebas_fantasma.map((nombre) => {
-            const encontrada = porNombre.get(nombre);
-            return (
-              <tr key={nombre} className="border-b border-line bg-warning-bg text-warning">
-                <td className="py-1.5 pr-2 font-semibold">{nombre} (adicional)</td>
-                <td className="py-1.5 pr-2">{encontrada?.resultado ?? "—"}</td>
-                <td className="py-1.5 pr-2">{encontrada?.valor ?? "—"}</td>
-                <td className="py-1.5 pr-2">{encontrada?.tecnico ?? "—"}</td>
-                <td className="py-1.5 pr-2">{encontrada?.fecha ?? "—"}</td>
-                <td className="py-1.5 pr-2" />
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            </thead>
+            <tbody>
+              {exigidas.map((nombre) => {
+                const encontrada = porNombre.get(nombre);
+                const activa = tieneAlerta(muestra.id_muestra, nombre);
+                return (
+                  <tr key={nombre} className={`border-b border-line ${!encontrada ? "bg-danger-bg text-danger" : ""}`}>
+                    <td className="py-1.5 pr-2 font-semibold">{nombre}</td>
+                    <td className="py-1.5 pr-2">{encontrada ? encontrada.resultado : "Faltante"}</td>
+                    <td className="py-1.5 pr-2">{encontrada?.valor ?? "—"}</td>
+                    <td className="py-1.5 pr-2">{encontrada?.tecnico ?? "—"}</td>
+                    <td className="py-1.5 pr-2">{encontrada?.fecha ?? "—"}</td>
+                    <td className="py-1.5 pr-2">
+                      {!encontrada && (
+                        <button
+                          type="button"
+                          onClick={() => onCrearAlerta(muestra.id_muestra, nombre)}
+                          aria-pressed={activa}
+                          aria-label={`Avisarme cuando ${nombre} se complete para ${muestra.id_muestra}`}
+                          className={`focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${activa ? "text-primary" : "text-danger hover:text-primary"}`}
+                        >
+                          <IconoCampana activa={activa} />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {muestra.pruebas_fantasma.map((nombre) => {
+                const encontrada = porNombre.get(nombre);
+                return (
+                  <tr key={nombre} className="border-b border-line bg-warning-bg text-warning">
+                    <td className="py-1.5 pr-2 font-semibold">{nombre} (adicional)</td>
+                    <td className="py-1.5 pr-2">{encontrada?.resultado ?? "—"}</td>
+                    <td className="py-1.5 pr-2">{encontrada?.valor ?? "—"}</td>
+                    <td className="py-1.5 pr-2">{encontrada?.tecnico ?? "—"}</td>
+                    <td className="py-1.5 pr-2">{encontrada?.fecha ?? "—"}</td>
+                    <td className="py-1.5 pr-2" />
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
 
 function TablaSkeleton() {
   return (
-    <div aria-hidden="true" className="animate-pulse divide-y divide-line">
+    <div aria-hidden="true" className="motion-safe:animate-pulse divide-y divide-line">
       {Array.from({ length: SKELETON_ROW_COUNT }, (_, i) => (
         <div key={i} className={FILA_GRID}>
           <span className="h-4 w-20 bg-line" />
@@ -268,6 +303,14 @@ interface DashboardProps {
   error?: ApiError | null;
   isLoading?: boolean;
   isFetching?: boolean;
+  // Timestamp (`Date.now()`, tal cual lo expone `dataUpdatedAt` de React Query) de la última
+  // respuesta exitosa -- no un estado derivado de la referencia de `data`. React Query hace
+  // "structural sharing" por defecto: si un refetch en segundo plano (auto-refresh, botón
+  // "Actualizar") trae el mismo contenido, `data` conserva la MISMA referencia y un
+  // `useEffect` con `[data]` en las dependencias nunca se dispara, aunque sí hubo una
+  // sincronización real. `dataUpdatedAt` sí cambia en cada fetch exitoso, tenga o no
+  // contenido distinto.
+  ultimaSyncTimestamp: number;
   tieneAlerta: (id_muestra: string, prueba: string) => boolean;
   onCrearAlerta: (id_muestra: string, prueba: string) => void;
   notificaciones: Notificacion[];
@@ -286,6 +329,7 @@ export function Dashboard({
   error,
   isLoading,
   isFetching,
+  ultimaSyncTimestamp,
   tieneAlerta,
   onCrearAlerta,
   notificaciones,
@@ -295,25 +339,24 @@ export function Dashboard({
   alertasPendientesCount,
   onVerAlertas,
 }: DashboardProps) {
-  const [ultimaSync, setUltimaSync] = useState<Date | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   function toggleExpand(id_muestra: string) {
     setExpandedId((current) => (current === id_muestra ? null : id_muestra));
   }
 
-  // "Última sincronización" real: se pisa cada vez que llega una respuesta nueva del
-  // servidor (carga inicial o una búsqueda), no un timestamp inventado como en el prototipo.
-  useEffect(() => {
-    if (!isLoading) setUltimaSync(new Date());
-  }, [data, isLoading]);
-
   return (
     <section
       className="mx-auto flex max-w-5xl flex-col border border-line bg-surface p-4 md:p-6"
       aria-label="Panel de validación de muestras"
     >
-      <header className="flex flex-col gap-4 border-b-2 border-ink pb-4">
+      <EstadoIconSprite />
+      {/* z-20, más alto que el encabezado sticky de la tabla (z-10) más abajo: al ser un
+          contenedor con posición/z-index propios, el header entero (incluido el desplegable
+          del buzón de notificaciones que cuelga de él) es una única unidad de apilamiento --
+          si quedara empatado en z-10 con el encabezado de la tabla, este último ganaría por
+          venir después en el DOM y el buzón se vería "por debajo" de él al desplegarse. */}
+      <header className="sticky top-0 z-20 flex flex-col gap-4 border-b-2 border-ink bg-surface pb-4">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
           <div>
             <p className="font-display text-[0.6875rem] font-bold tracking-[0.14em] text-ink-soft uppercase">
@@ -326,7 +369,9 @@ export function Dashboard({
           <p className="font-mono text-[0.8rem] text-ink-soft tabular-nums sm:text-right">
             <strong className="font-semibold text-ink">{data.muestras.length}</strong> muestras registradas
             <br />
-            {ultimaSync ? `última sincronización ${SYNC_TIME_FORMAT.format(ultimaSync)}` : "sincronizando…"}
+            {ultimaSyncTimestamp
+              ? `última sincronización ${SYNC_TIME_FORMAT.format(new Date(ultimaSyncTimestamp))}`
+              : "sincronizando…"}
           </p>
         </div>
 
@@ -353,6 +398,15 @@ export function Dashboard({
               </span>
             )}
           </div>
+          <button
+            type="button"
+            onClick={() => setExpandedId(null)}
+            disabled={expandedId === null}
+            className={`inline-flex items-center gap-1.5 border border-line-strong bg-transparent px-4 py-2 font-display text-[0.8125rem] font-bold tracking-wide text-ink uppercase hover:bg-paper disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS_RING}`}
+          >
+            <IconoContraer />
+            Contraer todo
+          </button>
           <button
             type="button"
             onClick={onExport}
@@ -412,7 +466,7 @@ export function Dashboard({
             className="mt-4 border border-line"
           >
             <div
-              className={`${FILA_GRID} sticky top-0 border-b border-line-strong bg-paper font-display text-[0.6875rem] font-bold tracking-widest text-ink-soft uppercase`}
+              className={`${FILA_GRID} sticky top-0 z-10 border-b border-line-strong bg-paper font-display text-[0.6875rem] font-bold tracking-widest text-ink-soft uppercase`}
             >
               <span>Muestra</span>
               <span>Estado</span>
@@ -431,6 +485,15 @@ export function Dashboard({
               // el volumen de muestras que maneja esta app no se justifica reescribir la
               // virtualización -- si el dataset crece a miles de filas, retomar
               // virtualización con medición dinámica de altura.
+              //
+              // DetalleMuestra se monta siempre (no solo cuando está expandida): la
+              // transición de grid-template-rows (0fr <-> 1fr) necesita que el elemento ya
+              // esté en el DOM antes de cambiar de estado para poder animar tanto la
+              // apertura como el cierre -- si se montara/desmontara condicionalmente, la
+              // primera apertura no tendría desde dónde animar. Para el volumen de esta app
+              // (decenas de filas) el costo de tener las N tablas de detalle colapsadas en
+              // el DOM es aceptable; con miles de filas convendría montarla recién al primer
+              // click y no volver a desmontarla.
               <div className="max-h-[520px] overflow-y-auto">
                 {data.muestras.map((muestra) => (
                   <div key={muestra.id_muestra}>
@@ -439,9 +502,12 @@ export function Dashboard({
                       expandida={expandedId === muestra.id_muestra}
                       onToggleExpand={toggleExpand}
                     />
-                    {expandedId === muestra.id_muestra && (
-                      <DetalleMuestra muestra={muestra} tieneAlerta={tieneAlerta} onCrearAlerta={onCrearAlerta} />
-                    )}
+                    <DetalleMuestra
+                      muestra={muestra}
+                      expandida={expandedId === muestra.id_muestra}
+                      tieneAlerta={tieneAlerta}
+                      onCrearAlerta={onCrearAlerta}
+                    />
                   </div>
                 ))}
               </div>

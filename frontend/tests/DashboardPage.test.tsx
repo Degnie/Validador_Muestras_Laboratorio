@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ToastProvider } from "../src/components/Toast";
@@ -111,6 +111,26 @@ describe("DashboardPage", () => {
     vi.useRealTimers();
   });
 
+  it("auto-refreshes the dashboard every 60s without any user interaction", async () => {
+    vi.mocked(fetchDashboard).mockResolvedValue({ muestras: [], alertas_desfase: [], errores_validacion: [] });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    renderPage();
+    await vi.waitFor(() => expect(fetchDashboard).toHaveBeenCalledTimes(1));
+
+    // advanceTimersByTimeAsync (no la variante sync) deja que la promesa del fetch resuelva
+    // entre cada tick -- React Query recién reprograma el siguiente refetchInterval después
+    // de que el anterior se resuelve, así que con la variante sync el reloj interno de la
+    // librería nunca llega a reprogramarse dentro del mismo advance.
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(fetchDashboard).toHaveBeenCalledTimes(1); // todavía no pasó el minuto
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(fetchDashboard).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+  });
+
   it("keeps the search input mounted and focusable while a debounced query is still in flight (regression)", async () => {
     // Bug real reportado: con un mock que resuelve en el mismo tick, esta regresión no se ve
     // (el estado de carga dura menos que un microtask). Acá se deja la segunda consulta
@@ -200,7 +220,11 @@ describe("DashboardPage", () => {
     await waitFor(() => expect(postNotificacion).toHaveBeenCalledWith("M-002", "Microbiologia"));
 
     fireEvent.click(screen.getByRole("button", { name: /notificaciones/i }));
-    expect(screen.getByText(/completó/)).toHaveTextContent("Microbiologia");
+    // El panel de "Alertas pendientes" queda siempre montado (oculto vía `hidden`) para
+    // conservar su estado al alternar de vista, y su estado vacío también dice "completó" --
+    // hay que acotar la búsqueda al buzón de notificaciones puntual.
+    const buzon = screen.getByRole("region", { name: /buzón de notificaciones/i });
+    expect(within(buzon).getByText(/completó/)).toHaveTextContent("Microbiologia");
   });
 
   it("shows 'La alerta ya fue generada' instead of creating a duplicate alert on a second bell click", async () => {

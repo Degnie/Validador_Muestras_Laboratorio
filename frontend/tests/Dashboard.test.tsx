@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { Dashboard } from "../src/components/Dashboard";
@@ -45,7 +45,7 @@ function setup(overrides: Partial<React.ComponentProps<typeof Dashboard>> = {}) 
   const onAbrirNotificaciones = vi.fn();
   const onActualizar = vi.fn();
   const onVerAlertas = vi.fn();
-  render(
+  const utils = render(
     <Dashboard
       data={data}
       query=""
@@ -57,12 +57,21 @@ function setup(overrides: Partial<React.ComponentProps<typeof Dashboard>> = {}) 
       noLeidas={0}
       onAbrirNotificaciones={onAbrirNotificaciones}
       onActualizar={onActualizar}
+      ultimaSyncTimestamp={Date.now()}
       alertasPendientesCount={0}
       onVerAlertas={onVerAlertas}
       {...overrides}
     />,
   );
-  return { onQueryChange, onExport, onCrearAlerta, onAbrirNotificaciones, onActualizar, onVerAlertas };
+  return { onQueryChange, onExport, onCrearAlerta, onAbrirNotificaciones, onActualizar, onVerAlertas, ...utils };
+}
+
+// El panel de detalle de cada muestra ahora se monta siempre (colapsado vía
+// grid-template-rows + aria-hidden, no desmontado) para poder animar la apertura/cierre --
+// así que `getByText` ya no alcanza para "solo lo que está expandido" como antes: hay que
+// acotar la búsqueda al panel puntual por su id.
+function panelDetalle(id_muestra: string) {
+  return document.getElementById(`detalle-${id_muestra}`)!;
 }
 
 describe("Dashboard", () => {
@@ -71,7 +80,9 @@ describe("Dashboard", () => {
 
     expect(screen.getByText("M-001")).toBeInTheDocument();
     expect(screen.getByText("Completo")).toBeInTheDocument();
-    expect(screen.getByText("Faltante")).toBeInTheDocument();
+    // "Faltante" también aparece dentro del panel de detalle de M-003 (siempre montado,
+    // colapsado) como el Resultado de la prueba que falta -- getAllByText en vez de getByText.
+    expect(screen.getAllByText("Faltante").length).toBeGreaterThan(0);
     expect(screen.getByText("Pruebas Adicionales")).toBeInTheDocument();
     expect(screen.queryByText("Pruebas Fantasma")).not.toBeInTheDocument();
   });
@@ -79,8 +90,43 @@ describe("Dashboard", () => {
   it("shows missing/additional test details", () => {
     setup();
 
-    expect(screen.getByText(/Microbiologia/)).toBeInTheDocument();
-    expect(screen.getByText(/Plaguicidas/)).toBeInTheDocument();
+    // Mismo motivo que arriba: el nombre de la prueba aparece tanto en el resumen de la fila
+    // ("Faltan: Microbiologia") como en la tabla de detalle siempre montada.
+    expect(screen.getAllByText(/Microbiologia/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Plaguicidas/).length).toBeGreaterThan(0);
+  });
+
+  it("updates the 'última sincronización' label on every new sync timestamp, even with unchanged data (regression)", () => {
+    // Bug real reportado: el auto-refresh (refetchInterval) sí pegaba al backend, pero el
+    // reloj de "última sincronización" no se movía. Causa: React Query hace structural
+    // sharing -- si el contenido no cambió, `data` conserva la MISMA referencia, y el
+    // `useEffect` anterior (dependía de `[data]`) nunca se volvía a disparar. El fix pasa a
+    // depender de `ultimaSyncTimestamp` (prop, ya no estado derivado de `data`), que cambia
+    // en cada fetch exitoso sin importar si el contenido es idéntico.
+    const t0 = new Date("2026-07-19T13:00:00").getTime();
+    const { rerender } = setup({ ultimaSyncTimestamp: t0 });
+    expect(screen.getByText(/última sincronización 01:00 p\. m\./i)).toBeInTheDocument();
+
+    const t1 = new Date("2026-07-19T13:04:00").getTime();
+    rerender(
+      <Dashboard
+        data={data}
+        query=""
+        onQueryChange={() => {}}
+        onExport={() => {}}
+        tieneAlerta={() => false}
+        onCrearAlerta={() => {}}
+        notificaciones={[]}
+        noLeidas={0}
+        onAbrirNotificaciones={() => {}}
+        onActualizar={() => {}}
+        alertasPendientesCount={0}
+        onVerAlertas={() => {}}
+        ultimaSyncTimestamp={t1}
+      />,
+    );
+
+    expect(screen.getByText(/última sincronización 01:04 p\. m\./i)).toBeInTheDocument();
   });
 
   it("shows a staleness alert banner when files are out of date", () => {
@@ -164,10 +210,12 @@ describe("Dashboard", () => {
 
     fireEvent.click(screen.getByText("M-003"));
 
-    expect(screen.getByText(/Tipo de análisis/)).toBeInTheDocument();
-    expect(screen.getByText("Agua Residual")).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Valor" })).toBeInTheDocument();
-    const fila = screen.getByText("Microbiologia").closest("tr");
+    const panel = panelDetalle("M-003");
+    expect(panel).not.toHaveAttribute("aria-hidden", "true");
+    expect(within(panel).getByText(/Tipo de análisis/)).toBeInTheDocument();
+    expect(within(panel).getByText("Agua Residual")).toBeInTheDocument();
+    expect(within(panel).getByRole("columnheader", { name: "Valor" })).toBeInTheDocument();
+    const fila = within(panel).getByText("Microbiologia").closest("tr");
     expect(fila).toHaveTextContent("Faltante");
   });
 
@@ -175,10 +223,37 @@ describe("Dashboard", () => {
     setup();
 
     fireEvent.click(screen.getByText("M-001"));
-    expect(screen.getByText(/Tipo de análisis/)).toBeInTheDocument();
+    expect(panelDetalle("M-001")).not.toHaveAttribute("aria-hidden", "true");
 
     fireEvent.click(screen.getByText("M-001"));
-    expect(screen.queryByText(/Tipo de análisis/)).not.toBeInTheDocument();
+    expect(panelDetalle("M-001")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("links the expand button to its detail panel via aria-controls/aria-expanded", () => {
+    setup();
+
+    const boton = screen.getByText("M-003");
+    expect(boton).toHaveAttribute("aria-expanded", "false");
+    expect(boton).toHaveAttribute("aria-controls", "detalle-M-003");
+
+    fireEvent.click(boton);
+
+    expect(boton).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("'Contraer todo' collapses the open row and starts disabled when nothing is expanded", () => {
+    setup();
+
+    const contraer = screen.getByRole("button", { name: /contraer todo/i });
+    expect(contraer).toBeDisabled();
+
+    fireEvent.click(screen.getByText("M-003"));
+    expect(contraer).not.toBeDisabled();
+
+    fireEvent.click(contraer);
+
+    expect(panelDetalle("M-003")).toHaveAttribute("aria-hidden", "true");
+    expect(contraer).toBeDisabled();
   });
 
   it("shows an alert bell only for missing tests, not for completed or additional ones", () => {

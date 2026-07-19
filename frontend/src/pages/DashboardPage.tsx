@@ -13,6 +13,15 @@ import { triggerDownload } from "../utils/download";
 
 const DASHBOARD_VACIO: DashboardResponse = { muestras: [], alertas_desfase: [], errores_validacion: [] };
 
+// Auto-refresh: cada `_build_estados` del backend relee y revalida el Excel entero (streaming
+// por lotes, pero igual O(filas)) y corre fuzzy matching sobre los IDs -- con datasets de
+// hasta ~5000 muestras eso no es instantáneo. 60s es un intervalo prudente: suficientemente
+// seguido para que una alerta se note sin demora exagerada, y suficientemente espaciado para
+// no encadenar requests sobre el único worker de Gunicorn (WEB_CONCURRENCY=1, ver ADR-001) en
+// el archivo más grande del rango. React Query no refetchea en segundo plano por defecto
+// (`refetchIntervalInBackground` es `false`): con la pestaña sin foco, el polling se pausa.
+const INTERVALO_AUTO_REFRESH_MS = 60_000;
+
 export function DashboardPage() {
   const [query, setQuery] = useState("");
   const [vista, setVista] = useState<"dashboard" | "alertas">("dashboard");
@@ -22,7 +31,7 @@ export function DashboardPage() {
   const { listaAlertas, tieneAlerta, crearAlerta, resolverAlerta } = useAlertas();
   const { notificaciones, noLeidas, agregarNotificacion, marcarTodasLeidas } = useNotificaciones();
 
-  const { data, error, isPending, isFetching, refetch } = useQuery({
+  const { data, error, isPending, isFetching, dataUpdatedAt, refetch } = useQuery({
     queryKey: ["muestras", debouncedQuery],
     // El signal lo provee y aborta React Query (al desmontar o al quedar obsoleta la query
     // por un nuevo debouncedQuery), no un AbortController manual.
@@ -32,6 +41,7 @@ export function DashboardPage() {
     // carga inicial. keepPreviousData mantiene la tabla anterior mientras llega la respuesta
     // nueva, así el input (y el foco) nunca se destruyen entre letras.
     placeholderData: keepPreviousData,
+    refetchInterval: INTERVALO_AUTO_REFRESH_MS,
   });
 
   // Cada alerta activa es una prueba puntual (id_muestra + nombre) que el usuario marcó como
@@ -75,34 +85,40 @@ export function DashboardPage() {
     }
   }
 
-  if (vista === "alertas") {
-    return (
-      <AlertasPanel
-        listaAlertas={listaAlertas}
-        onVolver={() => setVista("dashboard")}
-        onActualizar={() => void refetch()}
-        isFetching={isFetching}
-      />
-    );
-  }
-
+  // Los dos paneles quedan siempre montados; se alterna cuál se ve con la clase `hidden` en
+  // vez de renderizar uno u otro condicionalmente. Desmontar el Dashboard al pasar a
+  // "Alertas pendientes" perdía el scroll de la tabla y la fila expandida -- con `hidden`,
+  // el DOM (y ese estado) se conserva mientras el usuario va y vuelve entre vistas.
   return (
-    <Dashboard
-      data={data ?? DASHBOARD_VACIO}
-      query={query}
-      onQueryChange={setQuery}
-      onExport={handleExport}
-      error={error instanceof ApiError ? error : null}
-      isLoading={isPending}
-      isFetching={isFetching}
-      tieneAlerta={tieneAlerta}
-      onCrearAlerta={handleCrearAlerta}
-      notificaciones={notificaciones}
-      noLeidas={noLeidas}
-      onAbrirNotificaciones={marcarTodasLeidas}
-      onActualizar={() => void refetch()}
-      alertasPendientesCount={listaAlertas.length}
-      onVerAlertas={() => setVista("alertas")}
-    />
+    <>
+      <div hidden={vista !== "dashboard"}>
+        <Dashboard
+          data={data ?? DASHBOARD_VACIO}
+          query={query}
+          onQueryChange={setQuery}
+          onExport={handleExport}
+          error={error instanceof ApiError ? error : null}
+          isLoading={isPending}
+          isFetching={isFetching}
+          ultimaSyncTimestamp={dataUpdatedAt}
+          tieneAlerta={tieneAlerta}
+          onCrearAlerta={handleCrearAlerta}
+          notificaciones={notificaciones}
+          noLeidas={noLeidas}
+          onAbrirNotificaciones={marcarTodasLeidas}
+          onActualizar={() => void refetch()}
+          alertasPendientesCount={listaAlertas.length}
+          onVerAlertas={() => setVista("alertas")}
+        />
+      </div>
+      <div hidden={vista !== "alertas"}>
+        <AlertasPanel
+          listaAlertas={listaAlertas}
+          onVolver={() => setVista("dashboard")}
+          onActualizar={() => void refetch()}
+          isFetching={isFetching}
+        />
+      </div>
+    </>
   );
 }

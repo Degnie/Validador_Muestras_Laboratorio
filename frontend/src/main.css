@@ -35,28 +35,30 @@
   --font-display: "Archivo", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
 
-  /* Acento + neutros del manifiesto (no el "AI blue" #0056b3 anterior). Estos son los
-     valores de modo claro -- se redefinen abajo (fuera de @theme) para prefers-color-scheme
+  /* Paleta "menos estridente" inspirada en los tonos por defecto de Tailwind (blue-600,
+     emerald-600, amber-600, rose-600) en vez de los tonos a medida del manifiesto original.
+     Valores de modo claro -- se redefinen abajo (fuera de @theme) para prefers-color-scheme
      y para el toggle explícito, pero Tailwind necesita un valor default acá adentro. */
-  --color-primary: #0e6e63;
-  --color-primary-hover: #0b5850;
-  --color-paper: #edf2ef;
-  --color-surface: #fafcfb;
-  --color-line: #c7d2cc;
-  --color-line-strong: #9fb0a6;
-  --color-ink: #1c2321;
-  --color-ink-soft: #4c564f;
+  --color-primary: #2563eb; /* blue-600 */
+  --color-primary-hover: #1d4ed8; /* blue-700 */
+  --color-paper: #f8fafc; /* slate-50 */
+  --color-surface: #ffffff;
+  --color-line: #e2e8f0; /* slate-200 */
+  --color-line-strong: #cbd5e1; /* slate-300 */
+  --color-ink: #0f172a; /* slate-900 */
+  --color-ink-soft: #64748b; /* slate-500 */
 
-  /* Semántico, separado del acento: éxito/falta/adicional. Contraste verificado
-     >= 4.5:1 texto sobre fondo. El warning se subió de saturación (antes #8a5a0f sobre
-     #f6ecd6, casi indistinguible del blanco puro de --color-surface) para que se note a
-     simple vista y no se lave contra un fondo muy claro. */
-  --color-success: #2f7a3d;
-  --color-success-bg: #e4f1e6;
-  --color-warning: #9c5c02;
-  --color-warning-bg: #fbe7bd;
-  --color-danger: #a32b2b;
-  --color-danger-bg: #f8e4e1;
+  /* Semántico, separado del acento: éxito/falta/adicional. Contraste verificado >= 4.5:1
+     texto sobre fondo. `--color-danger` usa rose-600 (no rose-500): rose-500 sobre blanco
+     no llega a 4.5:1 para texto normal, y este token se usa como texto (badges, banners),
+     no solo como decoración -- un tono más oscuro de la misma familia mantiene "menos
+     estridente" sin perder legibilidad. */
+  --color-success: #059669; /* emerald-600 */
+  --color-success-bg: #ecfdf5; /* emerald-50 */
+  --color-warning: #d97706; /* amber-600 */
+  --color-warning-bg: #fffbeb; /* amber-50 */
+  --color-danger: #e11d48; /* rose-600 */
+  --color-danger-bg: #fff1f2; /* rose-50 */
 }
 
 /* Modo oscuro: sigue la preferencia del sistema operativo por defecto (media query).
@@ -64,11 +66,15 @@
    oscuro/claro explícito, y esa preferencia manda por sobre la del sistema en ambos
    sentidos (selector de atributo > selector de elemento en especificidad). Ningún
    componente usa estos colores directo -- todos pasan por las clases de Tailwind
-   (bg-paper, text-ink-soft, etc.), así que redefinir las variables alcanza. */
+   (bg-paper, text-ink-soft, etc.), así que redefinir las variables alcanza.
+
+   Los neutros (paper/surface/line/ink) se quedan en negro/gris puro a propósito -- pedido
+   explícito: el ajuste de saturación de esta paleta es solo para el acento y los semánticos,
+   el fondo oscuro no debe llevar ningún tinte de color. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-primary: #4fb3a3;
-    --color-primary-hover: #6cc4b5;
+    --color-primary: #60a5fa; /* blue-400 */
+    --color-primary-hover: #3b82f6; /* blue-500 */
     --color-paper: #0a0a0a;
     --color-surface: #131313;
     --color-line: #2a2a2a;
@@ -76,45 +82,45 @@
     --color-ink: #f0f0f0;
     --color-ink-soft: #a3a3a3;
 
-    --color-success: #6fcf82;
-    --color-success-bg: rgba(111, 207, 130, 0.16);
-    --color-warning: #e3a53f;
-    --color-warning-bg: rgba(227, 165, 63, 0.16);
-    --color-danger: #e2716a;
-    --color-danger-bg: rgba(226, 113, 106, 0.16);
+    --color-success: #34d399; /* emerald-400 */
+    --color-success-bg: rgba(52, 211, 153, 0.16);
+    --color-warning: #fbbf24; /* amber-400 */
+    --color-warning-bg: rgba(251, 191, 36, 0.16);
+    --color-danger: #fb7185; /* rose-400 */
+    --color-danger-bg: rgba(251, 113, 133, 0.16);
   }
 }
 :root[data-theme="dark"] {
-  --color-primary: #4fb3a3;
-  --color-primary-hover: #6cc4b5;
+  --color-primary: #60a5fa;
+  --color-primary-hover: #3b82f6;
   --color-paper: #0a0a0a;
   --color-surface: #131313;
   --color-line: #2a2a2a;
   --color-line-strong: #3d3d3d;
   --color-ink: #f0f0f0;
   --color-ink-soft: #a3a3a3;
-  --color-success: #6fcf82;
-  --color-success-bg: rgba(111, 207, 130, 0.16);
-  --color-warning: #e3a53f;
-  --color-warning-bg: rgba(227, 165, 63, 0.16);
-  --color-danger: #e2716a;
-  --color-danger-bg: rgba(226, 113, 106, 0.16);
+  --color-success: #34d399;
+  --color-success-bg: rgba(52, 211, 153, 0.16);
+  --color-warning: #fbbf24;
+  --color-warning-bg: rgba(251, 191, 36, 0.16);
+  --color-danger: #fb7185;
+  --color-danger-bg: rgba(251, 113, 133, 0.16);
 }
 :root[data-theme="light"] {
-  --color-primary: #0e6e63;
-  --color-primary-hover: #0b5850;
-  --color-paper: #edf2ef;
-  --color-surface: #fafcfb;
-  --color-line: #c7d2cc;
-  --color-line-strong: #9fb0a6;
-  --color-ink: #1c2321;
-  --color-ink-soft: #4c564f;
-  --color-success: #2f7a3d;
-  --color-success-bg: #e4f1e6;
-  --color-warning: #9c5c02;
-  --color-warning-bg: #fbe7bd;
-  --color-danger: #a32b2b;
-  --color-danger-bg: #f8e4e1;
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-paper: #f8fafc;
+  --color-surface: #ffffff;
+  --color-line: #e2e8f0;
+  --color-line-strong: #cbd5e1;
+  --color-ink: #0f172a;
+  --color-ink-soft: #64748b;
+  --color-success: #059669;
+  --color-success-bg: #ecfdf5;
+  --color-warning: #d97706;
+  --color-warning-bg: #fffbeb;
+  --color-danger: #e11d48;
+  --color-danger-bg: #fff1f2;
 }
 
 body {

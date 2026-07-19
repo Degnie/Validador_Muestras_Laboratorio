@@ -5,6 +5,120 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 
 ## [Unreleased]
 
+Refactor de la capa de presentación: transiciones suaves para la fila expandible, persistencia
+del DOM (scroll, filas abiertas) al alternar entre el dashboard y "Alertas pendientes",
+paleta semántica alineada a los tonos por defecto de Tailwind, y varios refuerzos de
+accesibilidad (`aria-controls`, `motion-safe:`, auditoría de `axe-core` en dev). Sin cambios
+de modelos, lógica de negocio ni contratos de API -- estrictamente capa visual.
+
+### Added
+- **[Frontend] Transición de apertura/cierre con CSS Grid** (`Dashboard.tsx::DetalleMuestra`):
+  el panel de detalle de cada muestra pasa a montarse siempre (antes se montaba/desmontaba
+  condicionalmente) envuelto en un `grid` cuyo `grid-template-rows` anima entre `0fr`
+  (colapsado) y `1fr` (abierto) -- una transición de "alto automático" real, sin medir alturas
+  en JS. `motion-reduce:transition-none` respeta `prefers-reduced-motion`. Colapsado, el panel
+  lleva `aria-hidden="true"` (nunca `display:none`, para no romper la transición) y queda
+  fuera del árbol de accesibilidad y de las búsquedas por rol de las pruebas.
+- **[Frontend] `aria-controls` en el botón que expande cada fila** (`Dashboard.tsx::Fila`):
+  el ID de muestra ahora referencia el panel que despliega (`aria-controls="detalle-{id}"`),
+  además del `aria-expanded` que ya tenía -- patrón estándar de disclosure widget.
+- **[Frontend] Botón "Contraer todo"**: colapsa la fila expandida (si hay una) desde el
+  header; deshabilitado cuando no hay ninguna abierta.
+- **[Frontend] Sprite de íconos de estado** (`Dashboard.tsx::EstadoIconSprite`): los 3 íconos
+  de estado (Completo/Faltante/Adicionales) pasan de un `<path>` completo repetido por fila a
+  un único bloque de `<symbol>` (oculto, sin layout) referenciado por cada fila con
+  `<use href="#icono-...">` -- con varias decenas de filas en pantalla, el DOM de la tabla
+  queda con un `<use>` liviano por ícono en vez de repetir el mismo path SVG completo.
+- **[Frontend] Header y controles de búsqueda sticky** (`Dashboard.tsx`): el header (título +
+  buscador + acciones) y el encabezado de la tabla de resultados llevan `sticky top-0 z-10`
+  con fondo opaco -- se mantienen visibles al hacer scroll dentro de la lista de muestras.
+- **[Frontend] Detalle expandido con estilo de tarjeta**: `border-l-4 border-primary
+  bg-surface shadow-sm` en vez del borde superior plano anterior -- se distingue mejor de la
+  fila que lo abre y del resto de la tabla.
+- **[Frontend] `motion-safe:` en las animaciones de carga**: el skeleton de carga inicial
+  (`animate-pulse`) y el ícono de "Actualizar" girando ahora respetan
+  `prefers-reduced-motion` en vez de animar incondicionalmente.
+- **[Frontend] Auditoría de accesibilidad en desarrollo** (`main.tsx`): `@axe-core/react`
+  (nueva devDependency) audita el árbol montado y tira warnings de contraste/ARIA por
+  consola -- solo cuando `import.meta.env.DEV` es verdadero; Vite elimina esa rama entera
+  (y el chunk de `axe-core`) del build de producción, así que no pesa en el bundle real.
+- **[Frontend] `<link rel="modulepreload">` para el entrypoint** (`index.html`): hint
+  explícito para el módulo principal -- Vite ya arma el grafo de precarga real para el build
+  de producción; esto solo adelanta el descubrimiento del entrypoint en el HTML servido.
+
+### Changed
+- **[Frontend] Paleta "menos estridente"** (`main.css`): el acento y los 3 semánticos pasan
+  de los tonos a medida del "manifiesto de laboratorio" a la familia de colores por defecto
+  de Tailwind -- `--color-primary` de `#0e6e63` a `#2563eb` (blue-600), `--color-success` a
+  `#059669` (emerald-600), `--color-warning` a `#d97706` (amber-600), `--color-danger` a
+  `#e11d48` (rose-600, no rose-500: rose-500 sobre blanco no llega al contraste 4.5:1 exigido
+  para texto normal, y este token se usa como texto en badges/banners, no solo como
+  decoración). Los neutros de modo claro (`paper`/`surface`/`line`/`ink`) pasan a la escala
+  `slate` de Tailwind. **El modo oscuro no toca sus neutros** (siguen en negro/gris puro,
+  pedido explícito de la iteración anterior): solo se suavizan sus acentos (`blue-400`,
+  `emerald-400`, `amber-400`, `rose-400`).
+- **[Frontend] `DashboardPage.tsx` mantiene las dos vistas montadas**: en vez de renderizar
+  condicionalmente `Dashboard` o `AlertasPanel` (desmontando el que no se ve), ambos quedan
+  siempre montados dentro de un `<div hidden={...}>` cada uno. Antes, pasar a "Alertas
+  pendientes" y volver perdía el scroll de la tabla y la fila expandida (React desmontaba y
+  remontaba `Dashboard` desde cero); con `hidden`, ese estado sobrevive. `getByRole` de
+  Testing Library ya excluye por defecto los elementos con el atributo `hidden`, así que las
+  pruebas existentes no necesitaron acotar sus búsquedas por rol -- sí hizo falta acotar un
+  par de búsquedas por texto (`getByText`) que ahora encuentran contenido en ambos paneles.
+- **[Frontend] `ThemeToggle`**: `aria-label` pasa de un texto dinámico ("Cambiar a modo
+  claro"/"Cambiar a modo oscuro") a uno fijo ("Alternar modo oscuro") -- patrón más estándar
+  para un botón de alternar con `aria-pressed` (el estado ya lo comunica `aria-pressed`, la
+  etiqueta describe la acción, no el resultado).
+
+### Verificado
+- **`vite.config.ts` sin referencias a `react-window`**: ya estaba limpio desde que se
+  retiró la virtualización (iteración "detalle granular por prueba") -- se revisó de nuevo
+  contra este pedido y no hizo falta ningún cambio.
+- `.density-compact`/`.density-comfortable` (`main.css`): ya existían como punto de extensión
+  documentado desde el rediseño visual; no se tocaron.
+
+### Rechazado / Descartado
+- **Persistir sin `hidden`, ej. clases CSS de opacidad**: `hidden` es el atributo nativo
+  correcto acá -- oculta de pantalla y del árbol de accesibilidad a la vez (Testing Library y
+  los lectores de pantalla ya lo entienden sin ARIA adicional), sin reinventar ese
+  comportamiento con clases propias.
+- **Montar/desmontar el panel de detalle solo al primer click (en vez de todas las filas
+  siempre)**: para el volumen de esta app (decenas de filas) el costo de tener todas las
+  tablas de detalle colapsadas en el DOM es aceptable y es lo que permite animar tanto la
+  apertura como el cierre sin lógica adicional. Documentado como punto a revisar si el
+  dataset crece a miles de filas.
+
+### Fixed
+- **Buzón de notificaciones se veía detrás del encabezado de la tabla**: el header principal
+  (`Dashboard.tsx`) y el encabezado de la tabla de resultados eran ambos `sticky` con
+  `z-10` -- al empatar, el que viene después en el DOM (el encabezado de la tabla) gana el
+  apilamiento y tapaba el desplegable del buzón, que cuelga del header principal. El header
+  principal pasa a `z-20`: al ser un contenedor con posición propia, sube como una sola
+  unidad de apilamiento (con el desplegable adentro) por encima del encabezado de la tabla.
+- **"Última sincronización" no se actualizaba con el auto-refresh** (`Dashboard.tsx` /
+  `DashboardPage.tsx`): el timestamp vivía en un `useState` que un `useEffect` pisaba cuando
+  cambiaba `data` -- pero React Query hace *structural sharing* por defecto: si un refetch en
+  segundo plano trae contenido idéntico al anterior, `data` conserva la misma referencia, el
+  efecto nunca se dispara, y el reloj quedaba congelado aunque el polling sí le pegara al
+  backend cada 60s. Fix: `Dashboard` recibe `ultimaSyncTimestamp` como prop (viene de
+  `dataUpdatedAt` de `useQuery`, que cambia en cada fetch exitoso sin importar el contenido)
+  en vez de derivarlo de la referencia de `data`; se borró el estado/efecto local, que ya no
+  hacía falta. Test de regresión: re-renderiza con dos `ultimaSyncTimestamp` distintos y el
+  mismo `data`, y verifica que la etiqueta cambia igual.
+
+### Added
+- **[Frontend] Auto-refresh cada 60s** (`DashboardPage.tsx`): antes no había ningún refetch
+  automático -- el dashboard solo se actualizaba con una búsqueda nueva o el botón
+  "Actualizar" manual. `useQuery` ahora suma `refetchInterval: 60_000`; React Query pausa el
+  polling con la pestaña sin foco (`refetchIntervalInBackground` en su default `false`), así
+  que no genera tráfico de fondo con la app minimizada. 60s es un intervalo prudente
+  considerando que cada request relee y revalida el Excel entero (streaming por lotes, pero
+  igual O(filas)) más el fuzzy matching de IDs -- con datasets de hasta ~5000 muestras y un
+  solo worker de Gunicorn (`WEB_CONCURRENCY=1`, ver ADR-001), un intervalo más corto podría
+  encadenar requests sobre el archivo más grande del rango soportado.
+
+## [1.11.0] - 2026-07-19
+
 Modo oscuro corregido (negro neutro, no verdoso), sistema de códigos de error para que un
 técnico químico entienda el mensaje sin jerga de programador ("input", "string"), y Docker
 verificado end-to-end ahora que la virtualización ya está habilitada en la máquina.

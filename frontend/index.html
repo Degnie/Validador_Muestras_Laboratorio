@@ -4,6 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Validador de Muestras de Laboratorio</title>
+    <!-- Vite ya inyecta modulepreload para el grafo real de dependencias del build de
+         producción; este hint explícito para el entrypoint solo acelera el caso en que el
+         navegador todavía no descubrió el <script type="module"> de abajo (algunos
+         navegadores empiezan a precargar módulos referenciados por <link modulepreload>
+         antes de terminar de parsear el resto del <head>). -->
+    <link rel="modulepreload" href="/src/main.tsx" />
   </head>
   <body>
     <div id="root"></div>

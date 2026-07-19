@@ -23,7 +23,7 @@ export function ThemeToggle() {
       type="button"
       onClick={alternar}
       aria-pressed={esOscuro}
-      aria-label={esOscuro ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+      aria-label="Alternar modo oscuro"
       title={esOscuro ? "Modo claro" : "Modo oscuro"}
       className="inline-flex h-8 w-8 items-center justify-center border border-line-strong bg-transparent text-ink hover:bg-paper focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
     >
