@@ -6,8 +6,8 @@ import { ToastProvider } from "./components/Toast";
 import { queryClient } from "./services/queryClient";
 
 // Única "ruta" de la app hoy, pero el code-splitting vale igual: separa el bundle del
-// dashboard (React Query + react-window + toda la lógica de negocio del cliente) del shell
-// inicial (header, providers), así el HTML inicial pinta antes de que llegue ese JS.
+// dashboard (React Query + toda la lógica de negocio del cliente) del shell inicial (header,
+// providers), así el HTML inicial pinta antes de que llegue ese JS.
 const DashboardPage = lazy(() => import("./pages/DashboardPage").then((m) => ({ default: m.DashboardPage })));
 
 // El título vive en Dashboard.tsx (dentro del mismo "sheet" que la búsqueda y la tabla,

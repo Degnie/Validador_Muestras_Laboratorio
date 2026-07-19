@@ -1,38 +1,42 @@
 import { useEffect, useState } from "react";
-import { List, type RowComponentProps } from "react-window";
 
+import type { Notificacion } from "../hooks/useNotificaciones";
+import { NotificationBell } from "./NotificationBell";
 import type { ApiError } from "../services/api";
 import type { DashboardResponse, EstadoMuestra, MuestraEstado } from "../types/muestra";
 
 const SYNC_TIME_FORMAT = new Intl.DateTimeFormat("es-PE", { hour: "2-digit", minute: "2-digit" });
 
-// Etiqueta de estado en rectángulo recto (sin rotación de "sello" -- se ve poco prolijo
-// en una tabla densa): reutiliza los mismos tokens semánticos que ya gobiernan los banners
-// de alerta (bg-danger-bg antes solo se usaba para errores de red, ahora también para
-// "Pruebas Fantasma" -- ambos son variantes de "algo anómalo").
-const ESTADO_CLASS: Record<EstadoMuestra, string> = {
-  Completo: "border-success bg-success-bg text-success",
-  Faltante: "border-warning bg-warning-bg text-warning",
-  "Pruebas Fantasma": "border-danger bg-danger-bg text-danger",
+// Etiqueta visible al usuario, separada del valor interno del contrato de la API
+// (EstadoMuestra) -- "Pruebas Fantasma" es el nombre que sigue mandando el backend, pero se
+// muestra como "Pruebas Adicionales" (más claro: no es un error de datos, es una prueba de
+// más que nadie pidió).
+const ESTADO_LABEL: Record<EstadoMuestra, string> = {
+  Completo: "Completo",
+  Faltante: "Faltante",
+  "Pruebas Fantasma": "Pruebas Adicionales",
 };
 
-const ROW_HEIGHT_COMODA = 44;
-const ROW_HEIGHT_COMPACTA = 32;
+// Faltante = rojo (algo pedido que no se hizo); Pruebas Adicionales = naranja (una prueba de
+// más, no un error de datos, pero sí algo a revisar).
+const ESTADO_CLASS: Record<EstadoMuestra, string> = {
+  Completo: "border-success bg-success-bg text-success",
+  Faltante: "border-danger bg-danger-bg text-danger",
+  "Pruebas Fantasma": "border-warning bg-warning-bg text-warning",
+};
+
 const SKELETON_ROW_COUNT = 8;
 
 // Debe coincidir con MAX_QUERY_LENGTH en backend/app/services/fuzzy_match.py -- el backend ya
 // trunca por seguridad, esto es solo para no dejar que el usuario escriba de más sin avisarle.
 const MAX_QUERY_LENGTH = 200;
 
-const FILA_GRID_BASE = "grid grid-cols-[140px_180px_1fr] items-center gap-2 px-3";
-function filaGrid(compacta: boolean): string {
-  return `${FILA_GRID_BASE} ${compacta ? "py-1" : "py-2"}`;
-}
+const FILA_GRID = "grid grid-cols-[140px_180px_1fr] items-center gap-2 px-3 py-2";
 const FOCUS_RING =
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary";
 
 // Íconos inline (a mano, trazos de Heroicons v2 -- MIT) en vez de sumar una dependencia
-// nueva solo por 3 glifos de 16x16.
+// nueva solo por unos glifos de 16x16.
 function IconoCompleto() {
   return (
     <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 shrink-0" aria-hidden="true">
@@ -90,25 +94,79 @@ function IconoCargando() {
   );
 }
 
+function IconoActualizar({ girando }: { girando: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      className={`h-4 w-4 ${girando ? "animate-spin" : ""}`}
+      aria-hidden="true"
+    >
+      <path d="M15.312 4.63a7 7 0 10.502 8.98.75.75 0 111.19.91 8.5 8.5 0 11-.615-10.966l.66-.66a.5.5 0 01.854.354V7a.5.5 0 01-.5.5h-4.782a.5.5 0 01-.353-.854l1.044-1.045z" />
+    </svg>
+  );
+}
+
+function IconoListaAlertas() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        d="M2 4.75A2.75 2.75 0 014.75 2h10.5A2.75 2.75 0 0118 4.75v10.5A2.75 2.75 0 0115.25 18H4.75A2.75 2.75 0 012 15.25V4.75zM5 7a1 1 0 011-1h1a1 1 0 110 2H6a1 1 0 01-1-1zm4-1a1 1 0 100 2h5a1 1 0 100-2H9zM5 12a1 1 0 011-1h1a1 1 0 110 2H6a1 1 0 01-1-1zm4-1a1 1 0 100 2h5a1 1 0 100-2H9z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function IconoCampana({ activa }: { activa: boolean }) {
+  return (
+    <svg viewBox="0 0 20 20" fill={activa ? "currentColor" : "none"} stroke="currentColor" strokeWidth={activa ? 0 : 1.5} className="h-4 w-4" aria-hidden="true">
+      <path d="M10 2a6 6 0 00-6 6v2.586l-1.707 1.707A1 1 0 003 14h14a1 1 0 00.707-1.707L16 10.586V8a6 6 0 00-6-6zM8.5 16a1.5 1.5 0 003 0h-3z" />
+    </svg>
+  );
+}
+
 function detalle(muestra: MuestraEstado): string {
   const partes = [];
   if (muestra.pruebas_faltantes.length > 0) partes.push(`Faltan: ${muestra.pruebas_faltantes.join(", ")}`);
-  if (muestra.pruebas_fantasma.length > 0) partes.push(`Fantasma: ${muestra.pruebas_fantasma.join(", ")}`);
+  if (muestra.pruebas_fantasma.length > 0) partes.push(`Adicionales: ${muestra.pruebas_fantasma.join(", ")}`);
   return partes.join(" ");
 }
 
-function Fila({ index, style, muestras, compacta }: RowComponentProps<{ muestras: MuestraEstado[]; compacta: boolean }>) {
-  const muestra = muestras[index];
+// El backend no manda una lista aparte de "pruebas exigidas" -- se reconstruye acá: toda
+// prueba realizada que no sea fantasma es exigida, más las que faltan por completo.
+function nombresExigidos(muestra: MuestraEstado): string[] {
+  const realizadasExigidas = muestra.pruebas
+    .map((p) => p.nombre_prueba)
+    .filter((nombre) => !muestra.pruebas_fantasma.includes(nombre));
+  return [...new Set([...realizadasExigidas, ...muestra.pruebas_faltantes])].sort();
+}
+
+interface FilaProps {
+  muestra: MuestraEstado;
+  expandida: boolean;
+  onToggleExpand: (id_muestra: string) => void;
+}
+
+function Fila({ muestra, expandida, onToggleExpand }: FilaProps) {
   const Icono = ESTADO_ICON[muestra.estado];
   return (
-    <div className={`${filaGrid(compacta)} border-b border-line text-sm hover:bg-primary/5`} style={style}>
-      <span className="font-mono font-semibold text-ink">{muestra.id_muestra}</span>
+    <div className={`${FILA_GRID} border-b border-line text-sm hover:bg-primary/5`}>
+      <button
+        type="button"
+        onClick={() => onToggleExpand(muestra.id_muestra)}
+        aria-expanded={expandida}
+        className="truncate text-left font-mono font-semibold text-ink underline decoration-dotted underline-offset-2 hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+      >
+        {muestra.id_muestra}
+      </button>
       <span>
         <span
           className={`inline-flex items-center gap-1 border-2 px-2.5 py-0.5 font-display text-[0.6875rem] font-extrabold tracking-wide uppercase ${ESTADO_CLASS[muestra.estado]}`}
         >
           <Icono />
-          {muestra.estado}
+          {ESTADO_LABEL[muestra.estado]}
         </span>
       </span>
       <span className="truncate text-ink-soft">{detalle(muestra)}</span>
@@ -116,11 +174,83 @@ function Fila({ index, style, muestras, compacta }: RowComponentProps<{ muestras
   );
 }
 
-function TablaSkeleton({ compacta }: { compacta: boolean }) {
+interface DetalleMuestraProps {
+  muestra: MuestraEstado;
+  tieneAlerta: (id_muestra: string, prueba: string) => boolean;
+  onCrearAlerta: (id_muestra: string, prueba: string) => void;
+}
+
+function DetalleMuestra({ muestra, tieneAlerta, onCrearAlerta }: DetalleMuestraProps) {
+  const exigidas = nombresExigidos(muestra);
+  const porNombre = new Map(muestra.pruebas.map((p) => [p.nombre_prueba, p]));
+
+  return (
+    <div className="border-t-2 border-ink bg-paper px-4 py-3 text-sm">
+      <p className="mb-2 font-display text-[0.6875rem] font-bold tracking-widest text-ink-soft uppercase">
+        {muestra.id_muestra} · Tipo de análisis: <span className="text-ink">{muestra.tipo_analisis}</span>
+      </p>
+      <table className="w-full border-collapse text-left">
+        <thead>
+          <tr className="border-b border-line-strong text-[0.6875rem] font-bold tracking-wide text-ink-soft uppercase">
+            <th className="py-1 pr-2">Prueba</th>
+            <th className="py-1 pr-2">Resultado</th>
+            <th className="py-1 pr-2">Valor</th>
+            <th className="py-1 pr-2">Técnico</th>
+            <th className="py-1 pr-2">Fecha</th>
+            <th className="py-1 pr-2">Alerta</th>
+          </tr>
+        </thead>
+        <tbody>
+          {exigidas.map((nombre) => {
+            const encontrada = porNombre.get(nombre);
+            const activa = tieneAlerta(muestra.id_muestra, nombre);
+            return (
+              <tr key={nombre} className={`border-b border-line ${!encontrada ? "bg-danger-bg text-danger" : ""}`}>
+                <td className="py-1.5 pr-2 font-semibold">{nombre}</td>
+                <td className="py-1.5 pr-2">{encontrada ? encontrada.resultado : "Faltante"}</td>
+                <td className="py-1.5 pr-2">{encontrada?.valor ?? "—"}</td>
+                <td className="py-1.5 pr-2">{encontrada?.tecnico ?? "—"}</td>
+                <td className="py-1.5 pr-2">{encontrada?.fecha ?? "—"}</td>
+                <td className="py-1.5 pr-2">
+                  {!encontrada && (
+                    <button
+                      type="button"
+                      onClick={() => onCrearAlerta(muestra.id_muestra, nombre)}
+                      aria-pressed={activa}
+                      aria-label={`Avisarme cuando ${nombre} se complete para ${muestra.id_muestra}`}
+                      className={`focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${activa ? "text-primary" : "text-danger hover:text-primary"}`}
+                    >
+                      <IconoCampana activa={activa} />
+                    </button>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+          {muestra.pruebas_fantasma.map((nombre) => {
+            const encontrada = porNombre.get(nombre);
+            return (
+              <tr key={nombre} className="border-b border-line bg-warning-bg text-warning">
+                <td className="py-1.5 pr-2 font-semibold">{nombre} (adicional)</td>
+                <td className="py-1.5 pr-2">{encontrada?.resultado ?? "—"}</td>
+                <td className="py-1.5 pr-2">{encontrada?.valor ?? "—"}</td>
+                <td className="py-1.5 pr-2">{encontrada?.tecnico ?? "—"}</td>
+                <td className="py-1.5 pr-2">{encontrada?.fecha ?? "—"}</td>
+                <td className="py-1.5 pr-2" />
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TablaSkeleton() {
   return (
     <div aria-hidden="true" className="animate-pulse divide-y divide-line">
       {Array.from({ length: SKELETON_ROW_COUNT }, (_, i) => (
-        <div key={i} className={filaGrid(compacta)}>
+        <div key={i} className={FILA_GRID}>
           <span className="h-4 w-20 bg-line" />
           <span className="h-5 w-24 bg-line" />
           <span className="h-4 w-40 bg-line" />
@@ -138,11 +268,39 @@ interface DashboardProps {
   error?: ApiError | null;
   isLoading?: boolean;
   isFetching?: boolean;
+  tieneAlerta: (id_muestra: string, prueba: string) => boolean;
+  onCrearAlerta: (id_muestra: string, prueba: string) => void;
+  notificaciones: Notificacion[];
+  noLeidas: number;
+  onAbrirNotificaciones: () => void;
+  onActualizar: () => void;
+  alertasPendientesCount: number;
+  onVerAlertas: () => void;
 }
 
-export function Dashboard({ data, query, onQueryChange, onExport, error, isLoading, isFetching }: DashboardProps) {
-  const [compacta, setCompacta] = useState(false);
+export function Dashboard({
+  data,
+  query,
+  onQueryChange,
+  onExport,
+  error,
+  isLoading,
+  isFetching,
+  tieneAlerta,
+  onCrearAlerta,
+  notificaciones,
+  noLeidas,
+  onAbrirNotificaciones,
+  onActualizar,
+  alertasPendientesCount,
+  onVerAlertas,
+}: DashboardProps) {
   const [ultimaSync, setUltimaSync] = useState<Date | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  function toggleExpand(id_muestra: string) {
+    setExpandedId((current) => (current === id_muestra ? null : id_muestra));
+  }
 
   // "Última sincronización" real: se pisa cada vez que llega una respuesta nueva del
   // servidor (carga inicial o una búsqueda), no un timestamp inventado como en el prototipo.
@@ -197,21 +355,34 @@ export function Dashboard({ data, query, onQueryChange, onExport, error, isLoadi
           </div>
           <button
             type="button"
-            onClick={() => setCompacta((c) => !c)}
-            aria-pressed={compacta}
-            className={`border px-4 py-2 font-display text-[0.8125rem] font-bold tracking-wide uppercase ${FOCUS_RING} ${
-              compacta ? "border-primary bg-primary/10 text-ink" : "border-line-strong bg-transparent text-ink hover:bg-paper"
-            }`}
-          >
-            {compacta ? "Vista cómoda" : "Vista compacta"}
-          </button>
-          <button
-            type="button"
             onClick={onExport}
             className={`border border-primary bg-primary px-4 py-2 font-display text-[0.8125rem] font-bold tracking-wide text-white uppercase hover:bg-primary-hover ${FOCUS_RING}`}
           >
             Exportar a Excel
           </button>
+          <button
+            type="button"
+            onClick={onActualizar}
+            aria-busy={isFetching || undefined}
+            className={`inline-flex items-center gap-1.5 border border-line-strong bg-transparent px-4 py-2 font-display text-[0.8125rem] font-bold tracking-wide text-ink uppercase hover:bg-paper ${FOCUS_RING}`}
+          >
+            <IconoActualizar girando={Boolean(isFetching)} />
+            Actualizar
+          </button>
+          <button
+            type="button"
+            onClick={onVerAlertas}
+            className={`relative inline-flex items-center gap-1.5 border border-line-strong bg-transparent px-4 py-2 font-display text-[0.8125rem] font-bold tracking-wide text-ink uppercase hover:bg-paper ${FOCUS_RING}`}
+          >
+            <IconoListaAlertas />
+            Alertas pendientes
+            {alertasPendientesCount > 0 && (
+              <span className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-danger px-1 font-mono text-[0.6875rem] font-bold text-white">
+                {alertasPendientesCount}
+              </span>
+            )}
+          </button>
+          <NotificationBell notificaciones={notificaciones} noLeidas={noLeidas} onAbrir={onAbrirNotificaciones} />
         </div>
       </header>
 
@@ -238,32 +409,42 @@ export function Dashboard({ data, query, onQueryChange, onExport, error, isLoadi
             role="region"
             aria-label="Resultados de la búsqueda"
             aria-busy={isLoading || undefined}
-            className="mt-4 overflow-hidden border border-line"
+            className="mt-4 border border-line"
           >
             <div
-              className={`${filaGrid(compacta)} border-b border-line-strong bg-paper font-display text-[0.6875rem] font-bold tracking-widest text-ink-soft uppercase`}
+              className={`${FILA_GRID} sticky top-0 border-b border-line-strong bg-paper font-display text-[0.6875rem] font-bold tracking-widest text-ink-soft uppercase`}
             >
               <span>Muestra</span>
               <span>Estado</span>
               <span>Detalle</span>
             </div>
             {isLoading ? (
-              <TablaSkeleton compacta={compacta} />
+              <TablaSkeleton />
             ) : data.muestras.length === 0 ? (
               <div className="px-4 py-10 text-center text-sm text-ink-soft">
                 No se encontraron muestras. Probá con otro código.
               </div>
             ) : (
-              <List
-                rowComponent={Fila}
-                rowCount={data.muestras.length}
-                rowHeight={compacta ? ROW_HEIGHT_COMPACTA : ROW_HEIGHT_COMODA}
-                rowProps={{ muestras: data.muestras, compacta }}
-                defaultHeight={Math.min(
-                  data.muestras.length * (compacta ? ROW_HEIGHT_COMPACTA : ROW_HEIGHT_COMODA),
-                  480,
-                ) || ROW_HEIGHT_COMODA}
-              />
+              // Lista mapeada (no virtualizada): el panel de detalle se inserta justo debajo
+              // de la fila que se expande, empujando el resto hacia abajo con el flujo normal
+              // del documento. react-window no soporta bien alturas de fila variables, y para
+              // el volumen de muestras que maneja esta app no se justifica reescribir la
+              // virtualización -- si el dataset crece a miles de filas, retomar
+              // virtualización con medición dinámica de altura.
+              <div className="max-h-[520px] overflow-y-auto">
+                {data.muestras.map((muestra) => (
+                  <div key={muestra.id_muestra}>
+                    <Fila
+                      muestra={muestra}
+                      expandida={expandedId === muestra.id_muestra}
+                      onToggleExpand={toggleExpand}
+                    />
+                    {expandedId === muestra.id_muestra && (
+                      <DetalleMuestra muestra={muestra} tieneAlerta={tieneAlerta} onCrearAlerta={onCrearAlerta} />
+                    )}
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </>

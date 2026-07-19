@@ -1,3 +1,4 @@
+import csv
 import unicodedata
 import zipfile
 from pathlib import Path
@@ -5,6 +6,7 @@ from typing import TypeVar
 
 import pandas as pd
 from openpyxl import load_workbook
+from openpyxl.worksheet.worksheet import Worksheet
 from pydantic import BaseModel, ValidationError
 
 from app.core.column_aliases import COLUMN_ALIASES
@@ -71,33 +73,47 @@ def assert_safe_excel_file(path: Path, max_size_mb: float = MAX_EXCEL_SIZE_MB) -
         )
 
 
-def read_excel_normalized(path: Path, batch_size: int = 500) -> pd.DataFrame:
-    """Streams the sheet via openpyxl's read_only mode (no full-workbook object graph in
-    memory) and assembles the DataFrame in batches, instead of pandas.read_excel loading
-    everything at once."""
-    workbook = load_workbook(path, read_only=True, data_only=True)
-    try:
-        sheet = workbook.active
-        rows = sheet.iter_rows(values_only=True)
-        header = next(rows, None)
-        columns = [_canonical_column(c) for c in header] if header else []
+def _read_sheet_normalized(sheet: Worksheet, batch_size: int) -> pd.DataFrame:
+    """Streams one worksheet in batches, instead of loading it whole into memory."""
+    rows = sheet.iter_rows(values_only=True)
+    header = next(rows, None)
+    columns = [_canonical_column(c) for c in header] if header else []
 
-        batches: list[pd.DataFrame] = []
-        batch: list[tuple] = []
-        for row in rows:
-            batch.append(row)
-            if len(batch) >= batch_size:
-                batches.append(pd.DataFrame(batch, columns=columns))
-                batch = []
-        if batch:
+    batches: list[pd.DataFrame] = []
+    batch: list[tuple] = []
+    for row in rows:
+        batch.append(row)
+        if len(batch) >= batch_size:
             batches.append(pd.DataFrame(batch, columns=columns))
-    finally:
-        workbook.close()
+            batch = []
+    if batch:
+        batches.append(pd.DataFrame(batch, columns=columns))
 
     df = pd.concat(batches, ignore_index=True) if batches else pd.DataFrame(columns=columns)
     for col in df.select_dtypes(include=["object", "str"]).columns:
         df[col] = df[col].apply(lambda v: v.strip() if isinstance(v, str) else v)
     return df
+
+
+def read_excel_normalized(path: Path, batch_size: int = 500) -> pd.DataFrame:
+    """Streams the active sheet via openpyxl's read_only mode (no full-workbook object graph
+    in memory) and assembles the DataFrame in batches, instead of pandas.read_excel loading
+    everything at once."""
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    try:
+        return _read_sheet_normalized(workbook.active, batch_size)
+    finally:
+        workbook.close()
+
+
+def read_excel_multisheet_normalized(path: Path, batch_size: int = 500) -> dict[str, pd.DataFrame]:
+    """Same streaming/batching approach as read_excel_normalized, but for every sheet of a
+    multi-tab workbook (each sheet = one 'prueba'/area). Returns {nombre_hoja: DataFrame}."""
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    try:
+        return {name: _read_sheet_normalized(workbook[name], batch_size) for name in workbook.sheetnames}
+    finally:
+        workbook.close()
 
 
 def validate_rows(df: pd.DataFrame, schema: type[ModelT]) -> tuple[pd.DataFrame, list[str]]:
@@ -123,3 +139,19 @@ def check_file_freshness(paths: dict[str, Path], max_lag_days: float = 1) -> lis
     newest = max(mtimes.values())
     max_lag_seconds = max_lag_days * 86400
     return [area for area, mtime in mtimes.items() if newest - mtime > max_lag_seconds]
+
+
+NOTIFICACIONES_CSV_HEADER = ["id_muestra", "prueba", "fecha_deteccion"]
+
+
+def append_notificacion_csv(csv_path: Path, id_muestra: str, prueba: str, fecha_deteccion: str) -> None:
+    """Appends one audit row, writing the header first if the file doesn't exist yet.
+    Sync by design (plain stdlib csv, no aiofiles dependency); the caller offloads this to a
+    thread (asyncio.to_thread) so it doesn't block the event loop."""
+    csv_path = Path(csv_path)
+    is_new_file = not csv_path.exists()
+    with open(csv_path, "a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        if is_new_file:
+            writer.writerow(NOTIFICACIONES_CSV_HEADER)
+        writer.writerow([id_muestra, prueba, fecha_deteccion])

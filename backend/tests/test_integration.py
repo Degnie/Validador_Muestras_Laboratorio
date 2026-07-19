@@ -23,13 +23,13 @@ def test_dashboard_covers_every_estado_and_corrects_typo(lab_dataset):
     assert muestras["M-001"]["estado"] == "Completo"
     assert muestras["M-003"]["estado"] == "Completo"
 
-    # El typo "M-0O2" en Area_2 se corrige a "M-002" antes de cruzar contra el checklist.
+    # El typo "M-0O2" en la pestaña pH se corrige a "M-002" antes de cruzar contra el checklist.
     assert "M-0O2" not in muestras
     assert muestras["M-002"]["estado"] == "Pruebas Fantasma"
     assert muestras["M-002"]["pruebas_faltantes"] == ["Microbiologia"]
     assert muestras["M-002"]["pruebas_fantasma"] == ["Plaguicidas"]
 
-    assert body["alertas_desfase"] == ["Area_3_Validacion_Informes"]
+    assert body["alertas_desfase"] == ["Checklist_Maestro"]
 
 
 def test_search_then_export_round_trip(lab_dataset):
@@ -41,16 +41,15 @@ def test_search_then_export_round_trip(lab_dataset):
 
     exportar = client.get("/api/muestras/exportar")
     assert exportar.status_code == 200
-    exported = pd.read_excel(io.BytesIO(exportar.content))
-    assert set(exported["id_muestra"]) == {"M-001", "M-002", "M-003"}
+    resumen = pd.read_excel(io.BytesIO(exportar.content), sheet_name="Resumen")
+    assert set(resumen["ID"]) == {"M-001", "M-002", "M-003"}
 
 
 def test_malicious_extension_is_rejected_before_parsing(lab_dataset):
     # Un archivo .csv disfrazado de .xlsx (o cualquier extensión no permitida) no debe
     # siquiera intentar parsearse.
-    disguised = lab_dataset.data_dir / "Area_2_Analisis_Quimico.xlsx"
-    disguised.unlink()
-    (lab_dataset.data_dir / "Area_2_Analisis_Quimico.xlsx").write_text("no soy un excel")
+    lab_dataset.datos_path.unlink()
+    lab_dataset.datos_path.write_text("no soy un excel")
 
     client = TestClient(create_app(lab_dataset))
     response = client.get("/api/muestras")

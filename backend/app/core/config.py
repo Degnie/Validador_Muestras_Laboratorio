@@ -22,21 +22,13 @@ class Settings(BaseModel):
         return self.data_dir / "Checklist_Maestro.xlsx"
 
     @property
-    def area1_path(self) -> Path:
-        return self.data_dir / "Area_1_Recepcion.xlsx"
+    def datos_path(self) -> Path:
+        return self.data_dir / "Datos.xlsx"
 
     @property
-    def area2_path(self) -> Path:
-        return self.data_dir / "Area_2_Analisis_Quimico.xlsx"
+    def notificaciones_csv_path(self) -> Path:
+        return self.data_dir / "historial_notificaciones.csv"
 
     @property
-    def area3_path(self) -> Path:
-        return self.data_dir / "Area_3_Validacion_Informes.xlsx"
-
-    @property
-    def area_paths(self) -> dict[str, Path]:
-        return {
-            "Area_1_Recepcion": self.area1_path,
-            "Area_2_Analisis_Quimico": self.area2_path,
-            "Area_3_Validacion_Informes": self.area3_path,
-        }
+    def source_paths(self) -> dict[str, Path]:
+        return {"Datos": self.datos_path, "Checklist_Maestro": self.checklist_path}

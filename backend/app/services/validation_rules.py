@@ -64,22 +64,37 @@ def _evaluar_estado(contexto: ContextoMuestra, reglas: list[ReglaValidacion]) ->
 
 def build_status(
     checklist: pd.DataFrame,
-    area2: pd.DataFrame,
+    datos: pd.DataFrame,
     reglas: list[ReglaValidacion] | None = None,
 ) -> pd.DataFrame:
-    """Cross-references required tests (checklist) against tests actually analyzed (area2)."""
+    """Cross-references required tests (checklist, per tipo_analisis) against tests actually
+    performed (datos: una fila por prueba/pestaña, con resultado/tecnico/fecha)."""
     reglas = reglas if reglas is not None else REGLAS_POR_DEFECTO
     rows = []
-    for id_muestra, required in checklist.groupby("id_muestra")["prueba_requerida"]:
-        analizadas = set(area2.loc[area2["id_muestra"] == id_muestra, "prueba"])
+    for id_muestra, grupo in checklist.groupby("id_muestra"):
+        required = grupo["prueba_requerida"]
+        tipo_analisis = grupo["tipo_analisis"].iloc[0]
+        filas_datos = datos.loc[datos["id_muestra"] == id_muestra]
+        analizadas = set(filas_datos["prueba"])
         contexto = ContextoMuestra(id_muestra=id_muestra, requeridas=set(required), analizadas=analizadas)
 
         rows.append(
             {
                 "id_muestra": id_muestra,
                 "estado": _evaluar_estado(contexto, reglas),
+                "tipo_analisis": tipo_analisis,
                 "pruebas_faltantes": contexto.faltantes,
                 "pruebas_fantasma": contexto.fantasma,
+                "pruebas": [
+                    {
+                        "nombre_prueba": fila["prueba"],
+                        "resultado": fila["resultado"],
+                        "valor": fila["valor"],
+                        "tecnico": fila["tecnico"],
+                        "fecha": fila["fecha"],
+                    }
+                    for fila in filas_datos.to_dict(orient="records")
+                ],
             }
         )
 

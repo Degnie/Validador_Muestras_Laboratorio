@@ -184,6 +184,15 @@ para no reabrirlos sin revisar antes el código y el `CHANGELOG.md`.
   `Dashboard.tsx`) es UX, no el control de seguridad — ese sigue siendo
   exclusivamente server-side.
 
+- **Ingesta multipestaña (`Datos.xlsx`) en vez de un Excel por área, y `historial_notificaciones.csv`
+  + Watchlist en `localStorage` para el detalle granular por prueba**: cambio de
+  requerimientos aprobado (ver `CHANGELOG.md`, sección "Unreleased" post-1.7.0). No introduce
+  base de datos, ORM ni cola de mensajes: el CSV es un archivo plano de solo-apéndice y la
+  Watchlist vive enteramente en el cliente, ambos dentro del espíritu de "sin tocar los
+  procesos ni los Excel originales" de este ADR. El único endpoint no-`GET` de la API
+  (`POST /api/notificaciones`) hace el *append* en un thread aparte (`run_in_threadpool`) para
+  no bloquear el event loop con I/O de archivo sincrónico.
+
 Ninguno de estos puntos introdujo una tecnología, ORM, base de datos o cola
 de mensajes fuera de las fijadas en "Decisión". Detalle de qué se evaluó y
 se descartó explícitamente: `CHANGELOG.md` (secciones "Rechazado /

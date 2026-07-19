@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
-type ToastVariant = "success" | "error";
+type ToastVariant = "success" | "error" | "info";
 
 interface ToastItem {
   id: number;
@@ -22,6 +22,7 @@ const AUTO_DISMISS_MS = 4000;
 const VARIANT_CLASSES: Record<ToastVariant, string> = {
   success: "border-success bg-success-bg text-success",
   error: "border-danger bg-danger-bg text-danger",
+  info: "border-primary bg-primary/10 text-primary",
 };
 
 let nextId = 0;

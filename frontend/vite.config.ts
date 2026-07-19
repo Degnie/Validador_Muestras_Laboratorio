@@ -20,13 +20,12 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        // Separa el vendor pesado (React + React Query + react-window, que cambian con poca
-        // frecuencia) del código de la app (que cambia en cada release), así el navegador
-        // puede cachear el chunk de vendor entre deploys en vez de re-descargarlo siempre.
+        // Separa el vendor pesado (React + React Query, que cambian con poca frecuencia) del
+        // código de la app (que cambia en cada release), así el navegador puede cachear el
+        // chunk de vendor entre deploys en vez de re-descargarlo siempre.
         manualChunks: {
           "vendor-react": ["react", "react-dom"],
           "vendor-query": ["@tanstack/react-query"],
-          "vendor-window": ["react-window"],
         },
       },
     },

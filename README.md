@@ -3,15 +3,23 @@
 # Validador Centralizado de Muestras de Laboratorio
 
 MVP "read-only" para reducir el tiempo de verificación manual en el área final
-de un laboratorio. Ingesta los Excel que hoy usan las tres áreas del proceso
-(Recepción, Análisis Químico, Validación de Informes), los cruza contra un
-Checklist Maestro y muestra un dashboard con el estado de cada muestra:
-**Completo**, **Faltante** o **Pruebas Fantasma** (pruebas registradas que
-nadie pidió).
+de un laboratorio. Ingesta un Excel multipestaña (`Datos.xlsx`, una pestaña
+por prueba/área) y un Checklist Maestro (que además indica el tipo de
+análisis solicitado por muestra), los cruza y muestra un dashboard con el
+estado de cada muestra: **Completo**, **Faltante** o **Pruebas Fantasma**
+(pruebas registradas que nadie pidió).
 
 También corrige errores tipográficos en los IDs de muestra mediante búsqueda
-difusa (ej. `M-0O6` → `M-006`) y avisa cuando alguno de los Excel de origen
-está desactualizado respecto a los demás.
+difusa (ej. `M-0O6` → `M-006`) y avisa cuando alguno de los 2 Excel de origen
+está desactualizado respecto al otro.
+
+Cada muestra es expandible en el dashboard para ver el detalle prueba por
+prueba (resultado, técnico, fecha) comparado contra lo exigido por el
+Checklist. El usuario puede añadir una muestra incompleta a una **Lista de
+Vigilancia** (persistida en el navegador); cuando una prueba faltante de una
+muestra vigilada se completa en una actualización posterior, aparece una
+notificación en el buzón local y queda un registro de auditoría en
+`data_mock/historial_notificaciones.csv`.
 
 ## Stack
 

@@ -6,8 +6,10 @@ import pytest
 from pydantic import BaseModel
 
 from app.services.ingestion import (
+    append_notificacion_csv,
     assert_safe_excel_file,
     check_file_freshness,
+    read_excel_multisheet_normalized,
     read_excel_normalized,
     validate_rows,
 )
@@ -178,3 +180,29 @@ def test_validate_rows_returns_empty_result_when_every_row_is_invalid():
 
     assert result.empty
     assert len(errores) == 1
+
+
+def test_read_excel_multisheet_normalized_returns_one_dataframe_per_sheet(tmp_path):
+    path = tmp_path / "datos.xlsx"
+    with pd.ExcelWriter(path) as writer:
+        pd.DataFrame({"ID": ["M-001"]}).to_excel(writer, sheet_name="pH", index=False)
+        pd.DataFrame({"ID": ["M-002"]}).to_excel(writer, sheet_name="Microbiologia", index=False)
+
+    result = read_excel_multisheet_normalized(path)
+
+    assert set(result.keys()) == {"pH", "Microbiologia"}
+    assert result["pH"]["id_muestra"].iloc[0] == "M-001"
+    assert result["Microbiologia"]["id_muestra"].iloc[0] == "M-002"
+
+
+def test_append_notificacion_csv_writes_header_only_once(tmp_path):
+    csv_path = tmp_path / "historial_notificaciones.csv"
+
+    append_notificacion_csv(csv_path, "M-001", "Microbiologia", "2026-07-18T00:00:00+00:00")
+    append_notificacion_csv(csv_path, "M-002", "pH", "2026-07-18T00:00:01+00:00")
+
+    lineas = csv_path.read_text(encoding="utf-8").splitlines()
+    assert lineas[0] == "id_muestra,prueba,fecha_deteccion"
+    assert lineas[1] == "M-001,Microbiologia,2026-07-18T00:00:00+00:00"
+    assert lineas[2] == "M-002,pH,2026-07-18T00:00:01+00:00"
+    assert len(lineas) == 3

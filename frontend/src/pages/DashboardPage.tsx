@@ -1,10 +1,13 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { AlertasPanel } from "../components/AlertasPanel";
 import { Dashboard } from "../components/Dashboard";
 import { useToast } from "../components/Toast";
+import { useAlertas } from "../hooks/useAlertas";
 import { useDebounce } from "../hooks/useDebounce";
-import { ApiError, exportDashboard, fetchDashboard } from "../services/api";
+import { useNotificaciones } from "../hooks/useNotificaciones";
+import { ApiError, exportDashboard, fetchDashboard, postNotificacion } from "../services/api";
 import type { DashboardResponse } from "../types/muestra";
 import { triggerDownload } from "../utils/download";
 
@@ -12,11 +15,14 @@ const DASHBOARD_VACIO: DashboardResponse = { muestras: [], alertas_desfase: [], 
 
 export function DashboardPage() {
   const [query, setQuery] = useState("");
+  const [vista, setVista] = useState<"dashboard" | "alertas">("dashboard");
   const debouncedQuery = useDebounce(query, 300);
   const { showToast, dismissToast } = useToast();
   const exportToastId = useRef<number | null>(null);
+  const { listaAlertas, tieneAlerta, crearAlerta, resolverAlerta } = useAlertas();
+  const { notificaciones, noLeidas, agregarNotificacion, marcarTodasLeidas } = useNotificaciones();
 
-  const { data, error, isPending, isFetching } = useQuery({
+  const { data, error, isPending, isFetching, refetch } = useQuery({
     queryKey: ["muestras", debouncedQuery],
     // El signal lo provee y aborta React Query (al desmontar o al quedar obsoleta la query
     // por un nuevo debouncedQuery), no un AbortController manual.
@@ -27,6 +33,30 @@ export function DashboardPage() {
     // nueva, así el input (y el foco) nunca se destruyen entre letras.
     placeholderData: keepPreviousData,
   });
+
+  // Cada alerta activa es una prueba puntual (id_muestra + nombre) que el usuario marcó como
+  // "avisame cuando esto se complete". No hace falta guardar una foto anterior: en cada
+  // respuesta nueva (incluida una forzada con el botón "Actualizar"), si esa prueba ya no
+  // aparece en pruebas_faltantes, se completó.
+  useEffect(() => {
+    if (!data) return;
+    for (const { id_muestra, prueba } of listaAlertas) {
+      const muestra = data.muestras.find((m) => m.id_muestra === id_muestra);
+      if (!muestra || muestra.pruebas_faltantes.includes(prueba)) continue;
+
+      agregarNotificacion(id_muestra, prueba);
+      resolverAlerta(id_muestra, prueba);
+      void postNotificacion(id_muestra, prueba);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  function handleCrearAlerta(id_muestra: string, prueba: string) {
+    const creada = crearAlerta(id_muestra, prueba);
+    if (!creada) {
+      showToast("La alerta ya fue generada", "info");
+    }
+  }
 
   async function handleExport() {
     // Descarta el toast del intento anterior antes de mostrar el resultado del nuevo, para
@@ -45,6 +75,17 @@ export function DashboardPage() {
     }
   }
 
+  if (vista === "alertas") {
+    return (
+      <AlertasPanel
+        listaAlertas={listaAlertas}
+        onVolver={() => setVista("dashboard")}
+        onActualizar={() => void refetch()}
+        isFetching={isFetching}
+      />
+    );
+  }
+
   return (
     <Dashboard
       data={data ?? DASHBOARD_VACIO}
@@ -54,6 +95,14 @@ export function DashboardPage() {
       error={error instanceof ApiError ? error : null}
       isLoading={isPending}
       isFetching={isFetching}
+      tieneAlerta={tieneAlerta}
+      onCrearAlerta={handleCrearAlerta}
+      notificaciones={notificaciones}
+      noLeidas={noLeidas}
+      onAbrirNotificaciones={marcarTodasLeidas}
+      onActualizar={() => void refetch()}
+      alertasPendientesCount={listaAlertas.length}
+      onVerAlertas={() => setVista("alertas")}
     />
   );
 }

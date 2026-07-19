@@ -14,20 +14,22 @@ vi.mock("../src/services/api", async () => {
     ...actual,
     fetchDashboard: vi.fn(),
     exportDashboard: vi.fn(),
+    postNotificacion: vi.fn(),
   };
 });
 
-import { exportDashboard, fetchDashboard } from "../src/services/api";
+import { exportDashboard, fetchDashboard, postNotificacion } from "../src/services/api";
 
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const utils = render(
     <QueryClientProvider client={client}>
       <ToastProvider>
         <DashboardPage />
       </ToastProvider>
     </QueryClientProvider>,
   );
+  return { ...utils, client };
 }
 
 describe("DashboardPage", () => {
@@ -38,7 +40,7 @@ describe("DashboardPage", () => {
   it("renders the dashboard once the data loads", async () => {
     vi.mocked(fetchDashboard).mockResolvedValue({
       muestras: [
-        { id_muestra: "M-001", estado: "Completo", pruebas_faltantes: [], pruebas_fantasma: [] },
+        { id_muestra: "M-001", estado: "Completo", tipo_analisis: "Agua Potable", pruebas_faltantes: [], pruebas_fantasma: [], pruebas: [] },
       ],
       alertas_desfase: [],
       errores_validacion: [],
@@ -70,7 +72,7 @@ describe("DashboardPage", () => {
   it("shows an export-specific error without losing the loaded table", async () => {
     vi.mocked(fetchDashboard).mockResolvedValue({
       muestras: [
-        { id_muestra: "M-001", estado: "Completo", pruebas_faltantes: [], pruebas_fantasma: [] },
+        { id_muestra: "M-001", estado: "Completo", tipo_analisis: "Agua Potable", pruebas_faltantes: [], pruebas_fantasma: [], pruebas: [] },
       ],
       alertas_desfase: [],
       errores_validacion: [],
@@ -165,5 +167,87 @@ describe("DashboardPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /exportar/i }));
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  });
+
+  it("notifies the mailbox and reports to the backend when an alerted sample's missing test gets completed", async () => {
+    localStorage.setItem(
+      "alertas_activas",
+      JSON.stringify([{ id_muestra: "M-002", prueba: "Microbiologia", creada: "2026-07-19T10:00:00.000Z" }]),
+    );
+    const muestraConFaltante = {
+      id_muestra: "M-002",
+      estado: "Faltante" as const,
+      tipo_analisis: "Agua Potable",
+      pruebas_faltantes: ["Microbiologia"],
+      pruebas_fantasma: [],
+      pruebas: [],
+    };
+    vi.mocked(fetchDashboard)
+      .mockResolvedValueOnce({ muestras: [muestraConFaltante], alertas_desfase: [], errores_validacion: [] })
+      .mockResolvedValueOnce({
+        muestras: [{ ...muestraConFaltante, estado: "Completo", pruebas_faltantes: [] }],
+        alertas_desfase: [],
+        errores_validacion: [],
+      });
+
+    const { client } = renderPage();
+    await screen.findByText("M-002");
+
+    await act(async () => {
+      await client.invalidateQueries();
+    });
+
+    await waitFor(() => expect(postNotificacion).toHaveBeenCalledWith("M-002", "Microbiologia"));
+
+    fireEvent.click(screen.getByRole("button", { name: /notificaciones/i }));
+    expect(screen.getByText(/completó/)).toHaveTextContent("Microbiologia");
+  });
+
+  it("shows 'La alerta ya fue generada' instead of creating a duplicate alert on a second bell click", async () => {
+    vi.mocked(fetchDashboard).mockResolvedValue({
+      muestras: [
+        {
+          id_muestra: "M-002",
+          estado: "Faltante",
+          tipo_analisis: "Agua Potable",
+          pruebas_faltantes: ["Microbiologia"],
+          pruebas_fantasma: [],
+          pruebas: [],
+        },
+      ],
+      alertas_desfase: [],
+      errores_validacion: [],
+    });
+
+    renderPage();
+    fireEvent.click(await screen.findByText("M-002"));
+    const campana = screen.getByRole("button", { name: /avisarme cuando microbiologia/i });
+
+    fireEvent.click(campana);
+    expect(screen.queryByText(/la alerta ya fue generada/i)).not.toBeInTheDocument();
+
+    fireEvent.click(campana);
+    expect(await screen.findByText(/la alerta ya fue generada/i)).toBeInTheDocument();
+  });
+
+  it("navigates to the pending-alerts panel and back, and refetches when 'Actualizar' is clicked", async () => {
+    localStorage.setItem(
+      "alertas_activas",
+      JSON.stringify([{ id_muestra: "M-011", prueba: "Dureza_Total", creada: "2026-07-19T10:00:00.000Z" }]),
+    );
+    vi.mocked(fetchDashboard).mockResolvedValue({ muestras: [], alertas_desfase: [], errores_validacion: [] });
+
+    renderPage();
+    await screen.findByPlaceholderText(/buscar por código/i);
+
+    fireEvent.click(screen.getByRole("button", { name: /alertas pendientes/i }));
+    expect(screen.getByText("M-011")).toBeInTheDocument();
+    expect(screen.getByText("Dureza_Total")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /actualizar/i }));
+    await waitFor(() => expect(fetchDashboard).toHaveBeenCalledTimes(2));
+
+    fireEvent.click(screen.getByRole("button", { name: /volver al panel principal/i }));
+    expect(await screen.findByPlaceholderText(/buscar por código/i)).toBeInTheDocument();
   });
 });
