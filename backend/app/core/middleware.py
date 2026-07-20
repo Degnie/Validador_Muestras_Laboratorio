@@ -7,12 +7,11 @@ from starlette.responses import JSONResponse, Response
 
 MAX_BODY_BYTES = 1 * 1024 * 1024  # 1 MB: esta API es de solo lectura, no espera payloads grandes.
 
-SECURITY_HEADERS = {
+BASE_SECURITY_HEADERS = {
     "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "no-referrer",
-    "Content-Security-Policy": "default-src 'none'",
 }
 
 
@@ -34,15 +33,33 @@ class MaxBodySizeMiddleware(BaseHTTPMiddleware):
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """`csp_default_src`: 'self' cuando este mismo proceso sirve el bundle de React (el
+    ejecutable todo-en-uno), 'none' cuando es solo API JSON detrás de otro servidor (nginx,
+    que ya pone su propia CSP para los estáticos que sirve él)."""
+
+    def __init__(self, app, csp_default_src: str = "none"):
+        super().__init__(app)
+        self.headers = {
+            **BASE_SECURITY_HEADERS,
+            "Content-Security-Policy": f"default-src '{csp_default_src}'",
+        }
+
     async def dispatch(self, request: Request, call_next) -> Response:
         response = await call_next(request)
-        response.headers.update(SECURITY_HEADERS)
+        response.headers.update(self.headers)
         return response
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Sliding-window limit per client IP, in-process memory (single-worker-friendly; a
-    shared store like Redis is only needed once this runs behind >1 gunicorn worker)."""
+    shared store like Redis is only needed once this runs behind >1 gunicorn worker).
+
+    Solo cuenta contra `/api/*`. En el despliegue con nginx esto era automático (nginx sirve
+    los estáticos sin pasar por acá); en el ejecutable todo-en-uno este mismo proceso también
+    sirve el bundle de React, y una sola carga de página ya son ~10 requests (HTML + JS +
+    CSS + fuentes) -- si esos contaran contra el límite, un par de recargas agotarían el
+    cupo y romperían la SPA entera (buscador, export, auto-refresh) sin que hubiera abuso
+    real de la API."""
 
     def __init__(self, app, max_requests: int = 60, window_seconds: float = 60):
         super().__init__(app)
@@ -51,6 +68,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._hits: dict[str, deque[float]] = defaultdict(deque)
 
     async def dispatch(self, request: Request, call_next):
+        if not request.url.path.startswith("/api"):
+            return await call_next(request)
+
         client_ip = request.client.host if request.client else "unknown"
         now = time.monotonic()
         hits = self._hits[client_ip]

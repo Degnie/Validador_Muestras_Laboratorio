@@ -5,6 +5,117 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 
 ## [Unreleased]
 
+### Entrega al cliente: ejecutable todo-en-uno (PyInstaller), sin Docker/Nginx (2026-07-19)
+
+Conversación directa con el cliente reveló tres restricciones que la arquitectura de Docker +
+Nginx no puede cumplir: el laboratorio no tiene soporte de TI interno, el sistema corre en PCs
+de escritorio estándar que se apagan cada turno (no un servidor siempre encendido), y los
+Excel se actualizan a mano en una carpeta de red compartida entre áreas. Se pivotea el
+**método de entrega** (no el stack: sigue siendo FastAPI + Pandas + React, ver
+[ADR-001](docs/ADR-001-Stack-Tecnologico.md)) a un ejecutable Windows todo-en-uno que un
+analista arranca con doble clic, sin instalar nada. Detalle completo de las restricciones del
+cliente y la justificación de cada decisión técnica en la nueva sección de `ADR-001`.
+
+### Added
+- **[Backend] `main.py` sirve el bundle de React** (`StaticFiles` en `/assets` + catch-all a
+  `index.html` para rutas de la SPA) cuando existe una carpeta `dist/` junto al ejecutable --
+  el mismo proceso FastAPI que expone `/api/*` ahora también sirve el frontend, sin nginx de
+  por medio. El catch-all devuelve 404 real (no 200) para rutas `api/*` no encontradas, y
+  sirve el archivo estático pedido si existe en `dist/` antes de asumir que es una ruta de la
+  SPA (evita que un `favicon`/`robots.txt` futuro quede tapado por `index.html`).
+- **[Backend] `_load_env_file`** (`main.py`): loader mínimo de `.env` (stdlib, `KEY=VALUE`
+  línea por línea, sin comillas/interpolación) para que `DATA_DIR` se pueda editar en un
+  `.env` junto al `.exe` sin sumar `python-dotenv` como dependencia nueva -- es la única
+  variable que el manual le pide tocar al analista.
+- **[Infra] `build_release.bat`**: compila el frontend (`npm run build`), arma un venv de
+  build limpio, empaqueta con PyInstaller (`--onedir`, no `--onefile`: arranca más rápido, no
+  descomprime Pandas/RapidFuzz a un temp dir en cada doble clic) y copia la plantilla de
+  `.env` (`deploy/env.template`) junto al `.exe` final.
+- **[Docs] `docs/MANUAL_DE_INSTALACION.md`**: guía paso a paso para el analista de
+  laboratorio (sin jerga técnica), con sección de troubleshooting para los 3 errores más
+  probables (`.env` mal editado, puerto ocupado, ruta de red sin permisos/nombre de archivo
+  incorrecto).
+- **[Backend] `requirements-dev.txt`**: separa `pytest`/`httpx` de `requirements.txt` -- el
+  `.exe` entregado al cliente ya no bundlea dependencias de test. `.github/workflows/ci.yml`
+  actualizado para instalar `requirements-dev.txt` en el job de backend.
+
+### Changed
+- **[Backend] `SecurityHeadersMiddleware` con CSP dinámica** (`middleware.py`): acepta
+  `csp_default_src` (`"self"` cuando el propio proceso sirve la SPA, `"none"` cuando es solo
+  API detrás de nginx) -- la CSP `'none'` fija de la auditoría anterior asumía que el backend
+  nunca servía HTML, dejó de ser cierto en el modo ejecutable y rompía la carga de
+  scripts/estilos de React.
+- **[Backend] `uvicorn.run(app, host="127.0.0.1", ...)`** en el arranque embebido
+  (`if __name__ == "__main__"`) -- no `"0.0.0.0"`. Sin Nginx/Docker de por medio y sin
+  autenticación, escuchar en todas las interfaces expondría el validador a toda la red del
+  laboratorio (las áreas comparten la misma carpeta compartida); el manual solo pide entrar
+  por `localhost`, no hay motivo para escuchar en más que eso.
+
+### Verificado
+- **`build_release.bat` corrido de punta a punta y `.exe` resultante probado como lo usaría
+  el analista** (doble clic, `DATA_DIR` apuntado a `data_mock/` vía el `.env` real, no un
+  mock de test): `GET /` sirve el `index.html` con la SPA, `GET /assets/*` sirve los bundles
+  de Vite, `GET /api/muestras` devuelve datos reales, `GET /api/ruta-inexistente` da 404 real,
+  una ruta de cliente inventada (`/cualquier-ruta-random`) cae al `index.html` vía el
+  catch-all, la CSP responde `default-src 'self'` (no `'none'`), y el proceso solo escucha en
+  `127.0.0.1:8000` (no `0.0.0.0`). Varios bugs reales aparecieron recién al correr la build de
+  verdad (uno de ellos, el rate limit, recién al usar la app interactivamente como un
+  analista, no con curl) -- ver "Fixed".
+
+### Fixed
+- **El rate limit (60 req/min) rompía toda la app con uso normal**: reportado por el cliente
+  ya probando el `.exe` real -- buscador sin responder, botones "Actualizar"/exportar
+  girando sin parar, "No se pudo conectar con el servidor", cuenta regresiva de
+  sincronización clavada en 0, página con aspecto de carga eterna. `RateLimitMiddleware`
+  cuenta *todas* las requests por IP, sin distinguir `/api/*` de estáticos. En el despliegue
+  con nginx eso nunca importó (nginx sirve `/assets/*`/`index.html` sin pasar por este
+  middleware, solo `/api/` llega al backend); en el ejecutable, este mismo proceso también
+  sirve el bundle completo de React -- una sola carga de página ya son ~10 requests (HTML +
+  5 bundles JS + CSS + 3 fuentes), y unas pocas recargas durante una sesión de prueba agotan
+  el cupo compartido con la API real, tirando 429 en cascada sobre el buscador, el export y
+  el auto-refresh. Fix: `RateLimitMiddleware` deja pasar sin contar todo lo que no empiece
+  con `/api` -- vuelve a proteger solo lo que protegía antes de este pivote.
+- **`.env` se ignoraba dentro del `.exe`**: `_load_env_file` buscaba `.env` en
+  `sys._MEIPASS`, que desde PyInstaller 6.x (`--onedir`) es la carpeta `_internal/` que
+  acompaña al ejecutable, no la carpeta del `.exe` en sí. El `.env` que el analista edita
+  vive junto al `.exe` (lo que ve en el Explorador), así que `DATA_DIR` nunca se aplicaba --
+  el programa seguía apuntando a `data_mock/`. Fix: `_env_dir()` nueva, separada de
+  `_base_path()` (que sigue usando `_MEIPASS` para los datos empaquetados, como `dist/`),
+  resuelve la carpeta del `.exe` vía `sys.executable` cuando corre empaquetado.
+- **`ImportError: DLL load failed while importing _ssl`** al arrancar el `.exe`: el escaneo
+  automático de dependencias de PyInstaller no detectó `libssl-3.dll`/`libcrypto-3.dll` en
+  esta instalación de Python (necesarias porque `anyio`/`starlette` importan `ssl`). Fix:
+  `build_release.bat` las localiza (`sys.base_prefix/DLLs` del intérprete activo) y las suma
+  con `--add-binary` al comando de PyInstaller.
+- **`backend/dist/` (salida por defecto de PyInstaller) rompía `pytest`/`uvicorn --reload`
+  en dev**: `main.py` usa "existe una carpeta `dist/` junto al backend" como señal de "estoy
+  empaquetado, serví la SPA" (`SERVE_SPA`). PyInstaller también escribe ahí por defecto
+  (`--onedir` sin `--distpath`), así que corriendo `build_release.bat` una vez y volviendo a
+  `pytest` en la misma máquina, la API interpretaba esa carpeta como un frontend empaquetado
+  real y crasheaba al no encontrar `dist/assets`. Fix: `--distpath ..\release` saca la salida
+  de PyInstaller de `backend/` por completo (el `.exe` final queda en `release/`, no en
+  `backend/dist/`); el frontend además se copia a una carpeta intermedia con otro nombre
+  (`web_build/`, mapeada a `dist/` adentro del bundle vía `--add-data "web_build;dist"`) para
+  no chocar con la salida de una build anterior tampoco durante el propio proceso de build.
+- **Tilde en un comentario `rem` rompía el parseo de `build_release.bat`**: `cmd.exe` en esta
+  consola no interpreta UTF-8 multibyte: un solo caracter acentuado (`í`) en un comentario
+  descarrilaba el resto del archivo, y cada línea posterior perdía su primer caracter
+  (`echo`→`cho`, `call`→`all`, `python`→`ython`...). Los comentarios del script se mantienen
+  en ASCII plano por esto.
+
+### Rechazado / Descartado
+- **Borrar `docker-compose.yml`/`Dockerfile`/`nginx.conf` del repo**: decisión explícita del
+  cliente, no indecisión -- quedan como camino de desarrollo local y de CI, y disponibles si
+  alguna sede del laboratorio termina teniendo un servidor propio más adelante. La entrega
+  actual al cliente es el `.exe`, no esto.
+- **`python-dotenv` para leer el `.env`**: descartado -- una única variable (`DATA_DIR`) en
+  formato `KEY=VALUE` sin comillas no justifica una dependencia nueva; el loader de 10 líneas
+  en stdlib (`_load_env_file`) cubre exactamente ese caso.
+- **`--onefile` de PyInstaller en vez de `--onedir`**: descartado -- `--onefile` extrae
+  Pandas/RapidFuzz a una carpeta temporal en cada arranque (más lento, doble clic con demora
+  perceptible); `--onedir` ya es "una carpeta, un doble clic" para el analista, sin esa
+  penalidad.
+
 ### Auditoría de infraestructura y seguridad (2026-07-19)
 
 Auditoría contra la arquitectura de despliegue documentada (contenedores no-root, límites de

@@ -204,3 +204,41 @@ de mensajes fuera de las fijadas en "Decisión". Detalle de qué se evaluó y
 se descartó explícitamente: `CHANGELOG.md` (secciones "Rechazado /
 Descartado" de cada versión) y `docs/TESTING_STRATEGY.md` (sección
 "4. Decisiones Históricas y Deuda Técnica").
+
+## Método de entrega al cliente: ejecutable todo-en-uno, no Docker/Nginx (2026-07-19)
+
+Levantado directamente con el cliente (ver `CHANGELOG.md`, sección "Unreleased"): el
+laboratorio **no tiene soporte de TI interno**, el sistema corre en **PCs de escritorio
+estándar que se apagan al final del turno** (no un servidor/NAS siempre encendido), y los
+técnicos actualizan `Datos.xlsx`/`Checklist_Maestro.xlsx` a mano en una **carpeta de red
+compartida** ya existente entre áreas. Con esas tres restricciones, pedirle al analista que
+instale Docker Desktop (requiere admin, virtualización habilitada, y sigue siendo un
+`docker compose up` por consola) deja de ser viable — Docker/Nginx quedan **fuera de la
+entrega final al cliente**, aunque siguen en el repo como camino de desarrollo/CI (ver más
+abajo).
+
+- **Empaquetado: PyInstaller `--onedir`, no `--onefile`.** Arranca más rápido (no
+  descomprime Pandas/RapidFuzz a un temp dir en cada doble clic) y sigue siendo "una carpeta,
+  un doble clic" para el analista — la diferencia con `--onefile` es invisible para el
+  usuario final.
+- **`backend/app/main.py` sirve el bundle de React directamente** (`StaticFiles` en
+  `/assets`, catch-all a `index.html` para las rutas de la SPA) en vez de depender de nginx:
+  el mismo proceso de FastAPI que expone `/api/*` también sirve el frontend, así que un solo
+  `.exe` alcanza. La CSP de `SecurityHeadersMiddleware` pasa a ser dinámica
+  (`csp_default_src="self"` cuando este proceso sirve la SPA, `"none"` cuando es solo API
+  detrás de nginx) — antes asumía que el backend nunca servía HTML, dejó de ser cierto acá.
+- **`host="127.0.0.1"`, no `"0.0.0.0"`.** Sin Nginx/Docker de por medio y sin autenticación,
+  escuchar en todas las interfaces expondría el validador a toda la red del laboratorio (las
+  áreas comparten la misma carpeta de red); el manual solo pide entrar por `localhost`, así
+  que no hay motivo para escuchar en más que eso.
+- **`.env` junto al `.exe` para `DATA_DIR`**, parseado con un loader mínimo de stdlib
+  (`_load_env_file` en `main.py`: `KEY=VALUE` línea por línea) en vez de sumar
+  `python-dotenv` como dependencia nueva — es la única variable que el analista necesita
+  tocar, y el formato no necesita comillas ni interpolación.
+- **`requirements.txt`/`requirements-dev.txt` separados**: `pytest`/`httpx` (solo tests) ya
+  no se instalan en el entorno que arma `build_release.bat`, para no bundlear dependencias de
+  test dentro del `.exe` entregado al cliente.
+- **Docker/Nginx se quedan en el repo, no se borran**: siguen siendo el camino de desarrollo
+  local y de CI (`.github/workflows/ci.yml` no cambia), y quedan disponibles si alguna sede
+  del laboratorio termina teniendo un servidor propio más adelante — decisión explícita del
+  cliente, no indecisión: "por ahora, PC de escritorio + `.exe`".

@@ -1,7 +1,12 @@
 backend/venv/
+backend/venv_build/
+backend/web_build/
+backend/build/
+backend/*.spec
 backend/__pycache__/
 backend/.pytest_cache/
 **/__pycache__/
+release/
 
 frontend/node_modules/
 frontend/dist/
