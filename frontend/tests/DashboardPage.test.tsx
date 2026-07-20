@@ -172,7 +172,12 @@ describe("DashboardPage", () => {
 
     await vi.advanceTimersByTimeAsync(60_000);
     await vi.waitFor(() => expect(fetchDashboard).toHaveBeenCalledTimes(2));
-    expect(document.querySelector('[aria-live="polite"]')).toHaveTextContent(/datos actualizados/i);
+    // El fetch resuelto no implica que React ya corrió el efecto que actualiza el aria-live
+    // (son un re-render + commit más allá) -- hace falta esperar la aserción en sí, no solo
+    // el conteo de llamadas, para no correr en una carrera intermitente bajo fake timers.
+    await vi.waitFor(() =>
+      expect(document.querySelector('[aria-live="polite"]')).toHaveTextContent(/datos actualizados/i),
+    );
 
     vi.useRealTimers();
   });
